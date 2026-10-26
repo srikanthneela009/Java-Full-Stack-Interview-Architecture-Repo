@@ -3,11 +3,11 @@
 Welcome to the **468-Question Deep-Dive Markdown Interview Preparation Repository** for Senior, Staff, and Lead Java Backend Engineers (`8+ Years Experience`).
 
 Every single question across all **9 Sections (52 Questions per Section = 468 Questions Total)** progresses systematically from **Part A: Basic Foundational (`Qx.1–Qx.18`)**, **Part B: Intermediate (`Qx.19–Qx.35`)**, to **Part C: Senior & Production Deep-Dive (`Qx.36–Qx.52`)**, and includes:
-1. **💡 In Plain English (Real-World Analogy & Core Intuition)**
-2. **⚙️ How It Works Internally (Proper Terminology Simply Explained)**
-3. **📊 Visual / ASCII Architecture & Flow Diagrams**
-4. **💻 Practical Production-Grade Code Examples**
-5. **⚠️ Production Pitfalls & Interview Takeaways**
+1. **Formal Technical Definition & Specification** (Exact JVM/JDK/Spring/SQL/Distributed Systems specification and architectural purpose)
+2. **Internal Execution Mechanics** (Deep runtime internals, bytecode/memory layout, and algorithmic behavior)
+3. **Technical Architecture & Execution Diagrams** (Step-by-step ASCII memory, state machine, and network flow diagrams)
+4. **Detailed Technical Example & Production Code** (Complete, runnable Java 21 / Spring Boot 3 / SQL / YAML implementations)
+5. **Step-by-Step Code Execution Explanation & Production Pitfalls** (Line-by-line compile-time & runtime execution walkthrough + real-world failure modes)
 
 ---
 

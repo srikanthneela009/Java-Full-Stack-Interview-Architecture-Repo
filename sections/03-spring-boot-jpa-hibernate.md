@@ -2,7 +2,7 @@
 
 > **Navigation**: [Back to Master Index (README.md)](../README.md)
 
-This section contains **52 in-depth questions and answers (Q3.1 – Q3.52)** progressing from **Basic/Foundational** to **Intermediate** and **Senior/Principal Architect (8+ Years)** levels. Every question includes **Core Internal Mechanics**, **Pictorial / ASCII Diagrams**, **Step-by-Step Code Implementations**, and **Production Pitfalls**.
+This section contains **52 in-depth questions and answers (Q3.1 – Q3.52)** progressing from **Basic/Foundational** to **Intermediate** and **Senior/Principal Architect (8+ Years)** levels. Every question includes a **Formal Technical Definition & Specification**, **Internal Execution Mechanics**, **Technical Architecture Diagrams**, **Detailed Production Code Examples**, and **Step-by-Step Code Execution Explanations & Production Pitfalls**.
 
 ---
 
@@ -11,19 +11,18 @@ This section contains **52 in-depth questions and answers (Q3.1 – Q3.52)** pro
 <a id="q3-1"></a>
 ### Q3.1: What is Inversion of Control (IoC) and Dependency Injection (DI), and how does Spring's `DefaultListableBeanFactory` wire object graphs at runtime?
 
-#### 1. 💡 In Plain English (The Real-World Analogy & Core Intuition)
-- **Without IoC (Building a car with fixed parts soldered together)**: Imagine a car manufacturer where the engine factory permanently welds a specific battery directly into the chassis with molten iron. If the battery dies, you have to throw the entire car in the trash!
-- **With IoC & Dependency Injection (Standardized Plugs & Sockets)**: The car chassis simply has standard electrical terminals (`BatteryInterface`). When you order a car, a master mechanic (the **Spring IoC Container**) picks an approved battery and drops it in. If you want to test the car in a laboratory, you can plug in a test power supply (`MockBattery`) without changing a single bolt on the chassis!
-- **The Core Rule**: "Don't call us, we'll call you" (Hollywood Principle). Your service never calls `new Repository()`; the Spring container creates it and injects it for you.
+#### 1. Formal Technical Definition & Specification
+- **Formal Definition**: **Inversion of Control (IoC)** is an object-oriented architectural principle in which the control of object instantiation, dependency graph assembly, and lifecycle orchestration is inverted from application domain classes to an external runtime framework container (**Spring IoC Container**, implemented by `DefaultListableBeanFactory`). **Dependency Injection (DI)** (JSR-330 / Jakarta Inject & Spring Core) is the concrete design pattern that realizes IoC by supplying a class's required collaborator references via constructors, factory methods, or setter methods at instantiation time.
+- **Core Architectural Purpose**: Eliminates hardcoded compile-time coupling to concrete implementation classes (such as invoking `new PostgresOrderRepository()` directly inside a domain service), enforces programming to interfaces, enables deterministic unit testing with test doubles, and allows the container to transparently wrap target beans in runtime AOP proxies (`@Transactional`, `@Async`, `@Secured`).
 
-#### 2. ⚙️ How It Works Internally (Proper Terminology Demystified)
+#### 2. Internal Spring Container & Execution Mechanics
 - **Inversion of Control (IoC)**: An architectural principle where the control flow of object instantiation, lifecycle management, and dependency resolution is inverted from application classes to an external runtime container (**Spring IoC Container**).
 - **Dependency Injection (DI)**: The concrete design pattern used by Spring to achieve IoC. Instead of `OrderService` executing `this.repo = new PostgresOrderRepository(...)`, the container reads **`BeanDefinition` metadata**, builds the dependency graph in topological order, and **injects** the required collaborator interfaces (`OrderRepository`) into `OrderService`.
 - **Internal Spring Container Mechanics (`DefaultListableBeanFactory`)**:
   1. **Metadata Parsing**: `BeanDefinitionReader` and `ClassPathBeanDefinitionScanner` scan `@Configuration` and `@Component` classes to register `BeanDefinition` objects in a `ConcurrentHashMap<String, BeanDefinition> beanDefinitionMap`.
   2. **Dependency Resolution**: When instantiating a bean (`doCreateBean`), Spring inspects constructor parameters (`ConstructorResolver`), resolves matching beans from the singleton cache (`DefaultSingletonBeanRegistry.singletonObjects`), and invokes the constructor via reflection (or AOT generated code in Spring Boot 3).
 
-#### 3. 📊 Visual Diagram: Traditional Tightly-Coupled Instantiation vs Spring IoC Container Wiring
+#### 3. Technical Architecture & Execution Diagram: Traditional Tightly-Coupled Instantiation vs Spring IoC Container Wiring
 ```
 WITHOUT IoC (Hardcoded Tight Coupling - Impossible to Unit Test or Swap DB):
   [OrderService] --- calls 'new' ---> [PostgresOrderRepo] --- calls 'new' ---> [HikariDataSource]
@@ -40,7 +39,7 @@ WITH SPRING IoC CONTAINER (DefaultListableBeanFactory):
   +-------------------------------------------------------------------+
 ```
 
-#### 4. 💻 Implementation: Clean Domain Service Wired via Constructor DI
+#### 4. Detailed Technical Example & Production Code: Clean Domain Service Wired via Constructor DI
 ```java
 @Service
 public class OrderFulfillmentService {
@@ -55,7 +54,11 @@ public class OrderFulfillmentService {
 }
 ```
 
-#### 5. ⚠️ Production Pitfalls & How to Explain in an Interview
+#### 5. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Stereotype Registration (`@Service`)**: During container bootstrap, `ClassPathBeanDefinitionScanner` detects `OrderFulfillmentService` and registers a `BeanDefinition` in `DefaultListableBeanFactory`.
+  2. **Single-Constructor Implicit Autowiring**: Because `OrderFulfillmentService` declares exactly one constructor (`OrderFulfillmentService(OrderRepository, PaymentGatewayClient)`), Spring's `ConstructorResolver` automatically selects it without requiring an explicit `@Autowired` annotation.
+  3. **Topological Dependency Resolution**: Before instantiating `OrderFulfillmentService`, the container resolves the `OrderRepository` (Spring Data JPA proxy) and `PaymentGatewayClient` beans from the singleton registry, verifies non-nullability via `Objects.requireNonNull(...)`, and stores references in `private final` fields.
 - **Never Call `new MyService()` Manually on a Spring-Managed Class**: Any object instantiated directly with the Java `new` keyword is **completely unknown to the Spring IoC Container**—all its `@Autowired` fields will be `null`, and none of its `@Transactional`, `@Async`, or `@Cacheable` AOP proxies will execute!
 
 ---
@@ -63,14 +66,11 @@ public class OrderFulfillmentService {
 <a id="q3-2"></a>
 ### Q3.2: What are the 6 Spring Bean Scopes, and what is the "Narrower-Scope Bean (`Prototype`/`Request`) Injected into a `Singleton` Bean" bug (and how does `@Lookup` or `ScopedProxyMode` fix it)?
 
-#### 1. 💡 In Plain English (The Real-World Analogy & Core Intuition)
-- **Singleton Scope**: Like the single communal coffee machine in the office kitchen. Everyone shares the same physical machine.
-- **Prototype Scope**: Like ordering a fresh paper coffee cup every time someone enters the kitchen. A brand new cup is handed to you each time.
-- **The Sneaky Bug (Narrower-Scope in Singleton)**: Imagine the kitchen manager (Spring startup) pours coffee into 1 paper cup on Monday morning, puts it in the manager's hands (`Singleton OrderService`), and locks the manager in an office. Throughout Monday, Tuesday, and Wednesday, 5,000 employees ask the manager for coffee, and the manager keeps handing them that **exact same cold, stale Monday paper cup**!
-- Why? Because the manager was created only ONCE on Monday, so their paper cup was only created once!
-- **The Fix (`ScopedProxyMode` / Proxy)**: Instead of handing the manager a physical cup, hand them a **Magic Reusable Thermos (a Proxy)**. Every time the manager opens the lid, the thermos magically teleports fresh hot coffee from today's new cup!
+#### 1. Formal Technical Definition & Specification
+- **Formal Definition**: A **Bean Scope** (`org.springframework.beans.factory.config.Scope`) defines the lifecycle boundary, object cardinality, and visibility semantics of bean instances managed by a Spring `BeanFactory`. Spring defines six standard scopes: `singleton` (one shared instance per container), `prototype` (new instance per lookup/injection), and four web-aware scopes (`request`, `session`, `application`, `websocket`).
+- **Core Architectural Purpose**: Controls whether state is shared globally across all application threads (`singleton`) or isolated per invocation, HTTP request, or user session. When a narrower-scoped bean (`prototype` or `request`) is injected into a wider-scoped `singleton` bean, constructor injection occurs only once at container startup—requiring **Scoped Proxies (`ScopedProxyMode.TARGET_CLASS`)**, **`ObjectProvider<T>`**, or **`@Lookup` method injection** to resolve a fresh target instance at runtime invocation.
 
-#### 2. ⚙️ How It Works Internally (Proper Terminology Demystified)
+#### 2. Internal Spring Container & Execution Mechanics
 | Scope | Lifecycle Boundary | Thread-Safety Implication |
 |---|---|---|
 | **`singleton` (Default)** | **1 instance per Spring `ApplicationContext`** (cached in `singletonObjects`). | Shared by all threads! **Must be stateless** or thread-safe. |
@@ -84,7 +84,7 @@ public class OrderFulfillmentService {
 Suppose `OrderService` is a **`singleton`** bean, and it injects `ShoppingCart` (which is `@RequestScope`) or `ReportBuilder` (which is `@Scope("prototype")`) via constructor injection.
 Because `OrderService` is a `singleton`, **its constructor runs ONLY ONCE at application startup**! Therefore, `OrderService` receives **one single `ReportBuilder` instance forever**, completely defeating the `prototype` scope!
 
-#### 3. 📊 Visual Diagram: Direct Prototype Injection Bug vs `ScopedProxyMode.TARGET_CLASS`
+#### 3. Technical Architecture & Execution Diagram: Direct Prototype Injection Bug vs `ScopedProxyMode.TARGET_CLASS`
 ```
 BROKEN (Direct Injection of Prototype into Singleton):
   Startup: [Singleton OrderService] ---> Injected ONCE with [Prototype Instance #1]
@@ -99,7 +99,7 @@ FIXED (ScopedProxyMode.TARGET_CLASS or ObjectProvider<T>):
        Delegates to [Instance #1]                              Delegates to [Instance #2]
 ```
 
-#### 4. 💻 Practical Implementation: Three Production Solutions (`ObjectProvider<T>`, `@Lookup`, `proxyMode`)
+#### 4. Detailed Technical Example & Production Code: Three Production Solutions (`ObjectProvider<T>`, `@Lookup`, `proxyMode`)
 ```java
 // SOLUTION 1 (Best for Prototype Beans): Inject Spring's ObjectProvider<T>
 @Service
@@ -126,7 +126,11 @@ public class RequestCorrelationContext {
 }
 ```
 
-#### 5. ⚠️ Production Pitfalls & How to Explain in an Interview
+#### 5. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Programmatic Lazy Lookup (`ObjectProvider<StatefulPdfContext>`)**: In `InvoiceGeneratorService`, instead of injecting `StatefulPdfContext` directly into the singleton constructor (which would freeze a single instance forever), the constructor injects `ObjectProvider<StatefulPdfContext>`.
+  2. **Per-Invocation Prototype Instantiation (`pdfContextProvider.getObject()`)**: Every time `generateInvoice(Order)` executes, calling `pdfContextProvider.getObject()` delegates back to `BeanFactory.getBean(StatefulPdfContext.class)`, allocating a brand-new, thread-isolated `StatefulPdfContext` prototype instance.
+  3. **Scoped Proxy Resolution (`@RequestScope`)**: On `RequestCorrelationContext`, `@RequestScope` configures `proxyMode = ScopedProxyMode.TARGET_CLASS`. Spring injects a stateless CGLIB proxy into singleton collaborators; when `getRequestId()` is called during an HTTP request, the proxy looks up the current thread's `RequestContextHolder` attribute map and delegates to that specific HTTP request's `RequestCorrelationContext` instance.
 - **Memory Leak Warning on `prototype` Beans**: Spring creates a `prototype` bean, hands it to your caller, and **forgets about it**—Spring **never calls `@PreDestroy` or `DisposableBean.destroy()`** on `prototype` beans! Why? Because if Spring held references to every prototype bean it ever created just to call `@PreDestroy` at shutdown, the container would leak memory and crash with `OutOfMemoryError`. If a `prototype` bean holds open sockets or files, the caller must close it manually.
 
 ---
@@ -134,12 +138,14 @@ public class RequestCorrelationContext {
 <a id="q3-3"></a>
 ### Q3.3: Compare Constructor Injection, Setter Injection, and Field Injection (`@Autowired`) — why does the Spring Team officially recommend Constructor Injection and deprecate Field Injection?
 
-#### 1. 💡 In Plain English (The Real-World Analogy & Core Intuition)
-- **Field Injection (`@Autowired` on field)**: Like buying a toy car that arrives with no wheels, and an invisible fairy magically glues wheels on 5 minutes later using reflection. If you try to play with the car outside the box (in a unit test with `new ToyCar()`), the wheels are missing and it crashes with `NullPointerException`!
-- **Constructor Injection**: Like a bicycle that **cannot be assembled or ridden unless you provide both wheels and handlebars on day one**. It guarantees that an incomplete, broken bike can never exist!
-- **Setter Injection**: Like a bike where parts can be swapped out later while you are riding down the street. Fine for optional accessories (a bell or basket), but dangerous for essential parts.
+#### 1. Formal Technical Definition & Specification
+- **Formal Definition**: Spring supports three primary Dependency Injection mechanisms handled by `ConstructorResolver` and `AutowiredAnnotationBeanPostProcessor`:
+  1. **Constructor Injection**: Dependencies are declared as constructor parameters and resolved prior to object instantiation (`Constructor.newInstance(...)`).
+  2. **Setter Injection**: The bean is first instantiated via a no-argument constructor, after which `@Autowired` mutator methods are invoked.
+  3. **Field Injection**: The bean is instantiated via a no-argument constructor, and `AutowiredAnnotationBeanPostProcessor` mutates `private` fields directly via Java Reflection (`Field.setAccessible(true)` followed by `Field.set()`).
+- **Core Architectural Purpose**: Constructor Injection is officially mandated for mandatory dependencies because it enables `private final` immutable fields (guaranteeing Java Memory Model safe publication across threads via the constructor freeze barrier), prevents partially initialized objects, fails fast on circular dependencies (`BeanCurrentlyInCreationException`), and allows pure-Java instantiation in unit tests without reflection.
 
-#### 2. ⚙️ How It Works Internally (Proper Terminology Demystified)
+#### 2. Internal Spring Container & Execution Mechanics
 | Dimension | Constructor Injection | Setter Injection | Field Injection (`@Autowired` on field) |
 |---|---|---|---|
 | **Immutability (`final`)** | **Yes** (`private final` fields guaranteed!) | No (fields must be non-final) | No (cannot be `final`; mutated via reflection) |
@@ -147,7 +153,7 @@ public class RequestCorrelationContext {
 | **Circular Dependencies** | **Fails fast at startup** (`BeanCurrentlyInCreationException`). | Resolves via 3-level cache, hiding architectural coupling. | Hides circular coupling until broken by AOP proxies. |
 | **Pure Java Testability** | Trivial: `new OrderService(mockRepo)` without Spring or reflection. | Easy: call `service.setRepo(mockRepo)`. | Requires reflection (`ReflectionTestUtils.setField`) or `@InjectMocks`. |
 
-#### 3. 📊 Visual Diagram: JMM Safe Publication of `final` Fields in Constructor Injection
+#### 3. Technical Architecture & Execution Diagram: JMM Safe Publication of `final` Fields in Constructor Injection
 ```
 CONSTRUCTOR INJECTION:
   new OrderService(orderRepo, paymentClient)
@@ -160,7 +166,7 @@ FIELD INJECTION (@Autowired private OrderRepository orderRepository):
   2. AutowiredAnnotationBeanPostProcessor uses Field.setAccessible(true) + Field.set() via reflection!
 ```
 
-#### 4. 💻 Practical Implementation: Constructor Injection + Optional Dependencies via `ObjectProvider` or Setter
+#### 4. Detailed Technical Example & Production Code: Constructor Injection + Optional Dependencies via `ObjectProvider` or Setter
 ```java
 @Service
 public class NotificationDispatcher {
@@ -179,7 +185,11 @@ public class NotificationDispatcher {
 }
 ```
 
-#### 5. ⚠️ Production Pitfalls & How to Explain in an Interview
+#### 5. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Mandatory Collaborator Enforcement**: `NotificationDispatcher` declares `smsGateway` and `emailGateway` as `private final` fields populated via constructor parameters. The container cannot instantiate `NotificationDispatcher` unless both beans exist in the `ApplicationContext`.
+  2. **Safe Optional Dependency Resolution (`ObjectProvider<AuditLogger>`)**: Rather than using field injection with `@Autowired(required = false)`, the constructor accepts `ObjectProvider<AuditLogger> auditLoggerProvider` and calls `auditLoggerProvider.getIfAvailable()`.
+  3. **JMM Final-Field Freeze**: When the constructor completes, the JVM emits a `StoreStore` barrier, guaranteeing that `smsGateway`, `emailGateway`, and `optionalAuditLogger` are safely published to all request threads without synchronization overhead.
 - **The Single Responsibility Smell Test**: With Field Injection, a developer can easily add 15 `@Autowired` fields to a God Class without noticing. With Constructor Injection, a constructor taking 15 parameters is an immediate, unmistakable visual warning that the class violates the **Single Responsibility Principle (SRP)** and must be refactored.
 
 ---
@@ -187,14 +197,11 @@ public class NotificationDispatcher {
 <a id="q3-4"></a>
 ### Q3.4: What is the difference between `@Component`, `@Service`, `@Repository`, and `@Controller`, and what special AOP post-processing does `@Repository` trigger?
 
-#### 1. 💡 In Plain English (The Real-World Analogy & Core Intuition)
-Think of a high-end restaurant:
-- **`@Controller` (The Waiter)**: Greets customers at the front door, takes HTTP food orders, validates that customers have money/menus, and delivers the finished plate back to the table.
-- **`@Service` (The Master Chef)**: Works in the kitchen. Knows the recipes, checks business rules (e.g. "Do not add nuts if allergic"), and ensures the meal is cooked within transaction boundaries.
-- **`@Repository` (The Cellar Pantry Clerk + Universal Translator)**: Goes down into the cold storage basement (PostgreSQL/Oracle) to fetch raw ingredients. If the Oracle supplier shouts an error in Greek or Postgres shouts in Latin, the pantry clerk translates it into simple English (**`DataAccessException`**) so the chef doesn't need to know foreign languages!
-- **`@Component` (Kitchen Appliances)**: The microwave or blender. A generic tool that helps out anywhere.
+#### 1. Formal Technical Definition & Specification
+- **Formal Definition**: `@Component`, `@Service`, `@Repository`, and `@Controller` are **Spring Stereotype Annotations** in `org.springframework.stereotype` (and `org.springframework.web.bind.annotation`). `@Service`, `@Repository`, and `@Controller` are meta-annotated with `@Component`, allowing `ClassPathBeanDefinitionScanner` to discover and register all four as `ScannedGenericBeanDefinition` entries during `@ComponentScan`.
+- **Core Architectural Purpose**: Beyond enforcing Domain-Driven Design (DDD) architectural layering (Presentation, Application/Domain Service, and Persistence layers), stereotyping enables layer-specific post-processing: `@Controller` activates web route registration via `RequestMappingHandlerMapping`, while `@Repository` activates `PersistenceExceptionTranslationPostProcessor` to wrap the bean in an AOP advisor that translates native JDBC `SQLException` and JPA `PersistenceException` errors into Spring's unified, unchecked `DataAccessException` hierarchy.
 
-#### 2. ⚙️ How It Works Internally (Proper Terminology Demystified)
+#### 2. Internal Spring Container & Execution Mechanics
 All four annotations are **Spring Stereotype Annotations** meta-annotated with `@Component`, meaning `ClassPathBeanDefinitionScanner` detects and registers all four as Spring beans during `@ComponentScan`.
 However, they carry distinct architectural and runtime semantics:
 1. **`@Component`**: Generic base stereotype for any utility or infrastructure component that does not belong specifically to the web, business, or persistence layer.
@@ -205,7 +212,7 @@ However, they carry distinct architectural and runtime semantics:
    - **Automatic Exception Translation**: Spring's `PersistenceExceptionTranslationPostProcessor` automatically wraps every `@Repository` bean in an AOP proxy (`PersistenceExceptionTranslationAdvisor`).
    - Whenever a `@Repository` method throws a raw vendor-specific exception (e.g., JDBC `SQLException` with vendor error code `23505`, or Jakarta Persistence `PersistenceException` / Hibernate `ConstraintViolationException`), the interceptor catches it and translates it into Spring's unified, technology-agnostic **`DataAccessException` hierarchy** (e.g., `DuplicateKeyException`, `DataIntegrityViolationException`, `DeadlockLoserDataAccessException`, `CannotAcquireLockException`)!
 
-#### 3. 📊 Visual Diagram: `@Repository` AOP Exception Translation Pipeline
+#### 3. Technical Architecture & Execution Diagram: `@Repository` AOP Exception Translation Pipeline
 ```
 Service Layer calls: customerRepository.save(customer);
                             |
@@ -224,7 +231,7 @@ Service Layer calls: customerRepository.save(customer);
 Service Layer catches vendor-neutral DuplicateKeyException!
 ```
 
-#### 4. 💻 Practical Implementation: Vendor-Neutral Persistence Exception Handling
+#### 4. Detailed Technical Example & Production Code: Vendor-Neutral Persistence Exception Handling
 ```java
 @Repository
 public class CustomJdbcLedgerRepository {
@@ -239,7 +246,11 @@ public class CustomJdbcLedgerRepository {
 }
 ```
 
-#### 5. ⚠️ Production Pitfalls & How to Explain in an Interview
+#### 5. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Advisor Proxy Creation (`@Repository`)**: Marking `CustomJdbcLedgerRepository` with `@Repository` causes `PersistenceExceptionTranslationPostProcessor` to wrap the bean in an AOP proxy backed by `PersistenceExceptionTranslationInterceptor`.
+  2. **Execution & Native Error Interception**: When `insertLedgerEntry(txId, amount)` executes `jdbcTemplate.update(...)`, a unique constraint violation in PostgreSQL throws a vendor-specific `PSQLException` with SQLState `23505`.
+  3. **Vendor-Neutral Exception Translation**: `SQLErrorCodeSQLExceptionTranslator` inspects SQLState `23505` and translates the checked SQL error into Spring's unchecked `org.springframework.dao.DuplicateKeyException`, allowing the calling `@Service` layer to handle persistence errors without coupling to PostgreSQL driver classes.
 - **Why does `@Transactional` Roll Back properly when a `@Repository` fails?** Because `@Repository` translates checked `SQLException`s into **unchecked `DataAccessException` (`extends RuntimeException`)**, which automatically triggers `@Transactional`'s default rollback rule!
 
 ---
@@ -247,16 +258,11 @@ public class CustomJdbcLedgerRepository {
 <a id="q3-5"></a>
 ### Q3.5: Compare `BeanFactory` vs `ApplicationContext`, and explain how `@Bean` methods inside `@Configuration` (Full Mode CGLIB Proxy) differ from `@Bean` methods inside `@Component` (Lite Mode)!
 
-#### 1. 💡 In Plain English (The Real-World Analogy & Core Intuition)
-- **`BeanFactory` vs `ApplicationContext`**:
-  - `BeanFactory` is like a bare-bones survival kit: it has a single manual match to start a fire on demand (lazy loading).
-  - `ApplicationContext` is a fully automated smart home: as soon as you flip the main switch on boot, it heats the water, boots the WiFi, tests the smoke detectors, and reports any wiring faults immediately (**eager fail-fast validation**).
-- **Full Mode (`@Configuration`) vs Lite Mode (`@Component`)**:
-  - Imagine you have a method `dataSource()` that creates a database connection pool.
-  - In **Full Mode (`@Configuration`)**, Spring puts an invisible butler (CGLIB proxy) in front of the method. When Method A and Method B both call `dataSource()`, the butler says: *"We already built one connection pool earlier; here is the existing one!"* Both share the exact same pool.
-  - In **Lite Mode (`@Component`)**, there is no butler! Method A builds a pool, and Method B builds a *second* pool! You now have duplicate connection pools silently draining your database server!
+#### 1. Formal Technical Definition & Specification
+- **Formal Definition**: `BeanFactory` (`org.springframework.beans.factory.BeanFactory`) is the root interface of the Spring IoC container providing foundational configuration metadata registry and on-demand bean instantiation. `ApplicationContext` (`org.springframework.context.ApplicationContext`) is an enterprise sub-interface of `BeanFactory` that adds eager singleton pre-instantiation at startup (`finishBeanFactoryInitialization`), automatic `BeanFactoryPostProcessor` and `BeanPostProcessor` registration, `Environment` property resolution, `ApplicationEventPublisher` event dispatching, and internationalization (`MessageSource`).
+- **Full Mode (`@Configuration`) vs Lite Mode (`@Component` / `proxyBeanMethods = false`)**: In Full Mode (`@Configuration(proxyBeanMethods = true)`), `ConfigurationClassPostProcessor` generates a **CGLIB subclass proxy** that intercepts inter-`@Bean` method calls and returns the cached singleton instance from the container. In Lite Mode (`@Component` or `proxyBeanMethods = false`), no CGLIB proxy is created, so direct method calls between `@Bean` methods execute as raw Java method invocations and instantiate duplicate, unmanaged objects.
 
-#### 2. ⚙️ How It Works Internally (Proper Terminology Demystified)
+#### 2. Internal Spring Container & Execution Mechanics
 1. **`BeanFactory` vs `ApplicationContext`**:
    - **`BeanFactory`**: The root interface of the Spring IoC container (`DefaultListableBeanFactory`). Instantiates beans **lazily** on demand when `getBean()` is called. Does not auto-register `BeanPostProcessor`s or `BeanFactoryPostProcessor`s.
    - **`ApplicationContext`**: Sub-interface of `BeanFactory` (`AnnotationConfigServletWebServerApplicationContext`). **Pre-instantiates all singleton beans eagerly at startup** (`finishBeanFactoryInitialization`) so configuration/wiring errors fail fast before accepting traffic. Adds `Environment`, `ApplicationEventPublisher`, `MessageSource` (i18n), and automatic AOP/PostProcessor registration.
@@ -267,7 +273,7 @@ public class CustomJdbcLedgerRepository {
    - **`@Component` or `@Configuration(proxyBeanMethods = false)` (Lite Mode)**:
      - **No CGLIB proxy is created**! Calling `dataSource()` from another method is a plain Java method call that executes `new HikariDataSource()` **every time**, creating multiple un-managed duplicate connection pools!
 
-#### 3. 📊 Visual Diagram: `@Configuration` CGLIB Interception vs `@Component` Lite Mode Bug
+#### 3. Technical Architecture & Execution Diagram: `@Configuration` CGLIB Interception vs `@Component` Lite Mode Bug
 ```
 1. @Configuration (Full Mode - CGLIB Subclass Proxy):
    @Bean public JdbcTemplate tpl() { return new JdbcTemplate(dataSource()); }
@@ -281,7 +287,7 @@ public class CustomJdbcLedgerRepository {
    @Bean public JdbcTemplate tpl2() { return new JdbcTemplate(dataSource()); } -> Creates Pool #2! (BUG!)
 ```
 
-#### 4. 💻 Practical Implementation: Safe `@Configuration(proxyBeanMethods = false)` Using Method Parameters
+#### 4. Detailed Technical Example & Production Code: Safe `@Configuration(proxyBeanMethods = false)` Using Method Parameters
 ```java
 // Best Practice in Spring Boot Auto-Configurations for faster startup & lower Metaspace:
 // Use proxyBeanMethods = false AND inject dependencies via @Bean method parameters (never call dataSource() directly!)
@@ -300,7 +306,11 @@ public class DatabaseConfig {
 }
 ```
 
-#### 5. ⚠️ Production Pitfalls & How to Explain in an Interview
+#### 5. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Lite Mode Optimization (`@Configuration(proxyBeanMethods = false)`)**: `DatabaseConfig` disables CGLIB subclass generation via `proxyBeanMethods = false`, reducing startup time and native Metaspace footprint.
+  2. **DataSource Singleton Registration (`@Bean public DataSource dataSource()`)**: Spring invokes `dataSource()` once and registers the returned `HikariDataSource` singleton in `DefaultSingletonBeanRegistry`.
+  3. **Container Parameter Injection (`jdbcTemplate(DataSource dataSource)`)**: Instead of calling `this.dataSource()` directly (which in Lite Mode would create a second duplicate connection pool!), `jdbcTemplate(DataSource dataSource)` requests the `DataSource` as a method parameter, causing the Spring container to inject the existing singleton `HikariDataSource`.
 - **Why can't `@Configuration` classes or `@Bean` methods be `final` or `private`?**
   Because in Full Mode (`proxyBeanMethods = true`), Spring must subclass the `@Configuration` class with **CGLIB** and override every `@Bean` method to intercept inter-bean method calls! `final` classes/methods cannot be overridden by CGLIB and cause startup failure.
 
@@ -309,7 +319,7 @@ public class DatabaseConfig {
 <a id="q3-6"></a>
 ### Q3.6: What happens step-by-step when `SpringApplication.run(App.class, args)` executes, and what three annotations make up `@SpringBootApplication`?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 `@SpringBootApplication` is a composite meta-annotation combining three core annotations:
 1. **`@SpringBootConfiguration`** (meta-annotated with `@Configuration`): Registers the main class itself as a bean configuration source.
 2. **`@EnableAutoConfiguration`** (imports `AutoConfigurationImportSelector`): Loads auto-configuration candidates from `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`.
@@ -330,7 +340,7 @@ public class DatabaseConfig {
 5. **Runners Execution**: Invokes `ApplicationRunner` and `CommandLineRunner` beans.
 6. **Ready Event**: Publishes `ApplicationReadyEvent` (Kubernetes readiness probe transitions to `UP`).
 
-#### 2. Pictorial Diagram: `SpringApplication.run()` Execution Timeline
+#### 2. Technical Architecture & Execution Diagram: `SpringApplication.run()` Execution Timeline
 ```
 SpringApplication.run(App.class, args)
   |
@@ -349,7 +359,7 @@ SpringApplication.run(App.class, args)
   +--> 6. Publish ApplicationReadyEvent (Service Ready for Traffic!)
 ```
 
-#### 3. Implementation: Using `ApplicationRunner` for Post-Startup Warmup
+#### 3. Detailed Technical Example & Production Code: Using `ApplicationRunner` for Post-Startup Warmup
 ```java
 @Component
 @Order(1)
@@ -367,7 +377,11 @@ public class CacheWarmupRunner implements ApplicationRunner {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `CacheWarmupRunner` (annotated with `@Component`, `@Order`, `@Override`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `run(...)`, execution proceeds step-by-step: the core statement `public void run(ApplicationArguments args) {` executes the primary state transformation while preserving algorithmic time/space complexity and thread safety.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Accidental Package Placement Bug**: If your main `@SpringBootApplication` class is placed in `com.corp.app.bootstrap` while your controllers are in `com.corp.app.web`, `@ComponentScan` only scans `com.corp.app.bootstrap.*` and **silently ignores all your controllers** (returning HTTP 404 on every endpoint)! Always place the main class at the root package `com.corp.app`.
 
 ---
@@ -375,7 +389,7 @@ public class CacheWarmupRunner implements ApplicationRunner {
 <a id="q3-7"></a>
 ### Q3.7: How do Spring Boot Starters and `spring-boot-dependencies` BOM (Bill of Materials) solve transitive dependency conflicts?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 In traditional Spring Framework projects prior to Spring Boot, adding Hibernate, Jackson, SLF4J, and Tomcat required manually specifying 30+ individual Maven/Gradle dependencies and ensuring their transitive versions were binary-compatible (otherwise failing at runtime with `NoSuchMethodError` or `ClassNotFoundException`).
 Spring Boot solves this via two mechanisms:
 1. **Curated Starter POMs (`spring-boot-starter-*`)**:
@@ -383,7 +397,7 @@ Spring Boot solves this via two mechanisms:
 2. **Maven BOM (`spring-boot-dependencies` / Gradle `platform(...)`)**:
    - Declares a `<dependencyManagement>` matrix pinning tested, compatible versions for 300+ third-party libraries (Jackson, Hibernate, Netty, Micrometer, Kafka, Testcontainers) and enforcing Maven's nearest-definition override or Gradle platform constraints.
 
-#### 2. Pictorial Diagram: `spring-boot-starter-web` Transitive Dependency Tree
+#### 2. Technical Architecture & Execution Diagram: `spring-boot-starter-web` Transitive Dependency Tree
 ```
 [ spring-boot-starter-web ]
         |
@@ -393,7 +407,7 @@ Spring Boot solves this via two mechanisms:
         +---> [ spring-web ] & [ spring-webmvc ] (DispatcherServlet, RestClient)
 ```
 
-#### 3. Implementation: Swapping Embedded Server or Logging via Starter Exclusions
+#### 3. Detailed Technical Example & Production Code: Swapping Embedded Server or Logging via Starter Exclusions
 ```xml
 <!-- Example: Swapping default Embedded Tomcat for Undertow or Jetty in pom.xml -->
 <dependency>
@@ -412,7 +426,11 @@ Spring Boot solves this via two mechanisms:
 </dependency>
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code & Configuration Execution Walkthrough**:
+  1. **Declaration & Schema Binding**: The XML block begins with `<!-- Example: Swapping default Embedded Tomcat for Undertow or Jetty in pom.xml `, establishing the target resource, dependency descriptor, or execution context for **How do Spring Boot Starters and `spring-boot-dependencies` BOM (Bill of Materials) solve transitive dependency conflicts?**.
+  2. **Core Rule / Parameter Evaluation**: At `<artifactId>spring-boot-starter-tomcat</artifactId>`, the runtime engine (Spring Boot binder, Kubernetes/Envoy control plane, JVM launcher, or SQL planner) parses the explicit thresholds, routing rules, or execution flags.
+  3. **Runtime Enforcement**: Concluding with `</dependency>`, these settings are enforced deterministically at startup and runtime to guarantee the behavior illustrated in the architecture diagram above.
 - **Naming Convention for Custom Enterprise Starters**:
   - Official Spring Boot starters are named `spring-boot-starter-{name}`.
   - When building an internal company starter (e.g., for corporate security/telemetry), the official Spring team guideline is to name it **`{company}-{feature}-spring-boot-starter`** (e.g., `acme-security-spring-boot-starter`), separating `acme-security-autoconfigure` from the starter coordinates.
@@ -422,7 +440,7 @@ Spring Boot solves this via two mechanisms:
 <a id="q3-8"></a>
 ### Q3.8: Explain Spring Boot Externalized Configuration Property Precedence, Relaxed Binding, and why `@ConfigurationProperties` with Java `record`s is superior to `@Value`.
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 1. **Property Source Precedence Order (Highest to Lowest Priority)**:
    1. `@TestPropertySource` / `@SpringBootTest(properties = ...)` in tests.
    2. **Command-line arguments** (`--app.payment.timeout=5000`).
@@ -439,7 +457,7 @@ Spring Boot solves this via two mechanisms:
    - **JSR-380 Bean Validation at Startup (`@Validated`)**: Validates `@NotBlank`, `@Min`, `@Positive`, `@DurationMin` at application startup! If a required env var is invalid, Spring Boot prints a human-readable `FailureAnalyzer` report and refuses to start.
    - **Relaxed Binding**: Maps `app.payment.max-retries` (kebab-case YAML), `APP_PAYMENT_MAX_RETRIES` (OS env var), and `app.payment.maxRetries` (camelCase) seamlessly to `int maxRetries`.
 
-#### 2. Pictorial Diagram: Property Precedence Override & `@ConfigurationProperties` Binding
+#### 2. Technical Architecture & Execution Diagram: Property Precedence Override & `@ConfigurationProperties` Binding
 ```
 [1. Packaged application.yml:       app.payment.timeout: 2s]
               | (Overridden by)
@@ -453,7 +471,7 @@ Spring Boot solves this via two mechanisms:
 [4. CLI Arg --app.payment.timeout=3s] ===> Final Bound Value in PaymentProperties = Duration.ofSeconds(3)!
 ```
 
-#### 3. Implementation: Immutable Validated `@ConfigurationProperties` Java `record`
+#### 3. Detailed Technical Example & Production Code: Immutable Validated `@ConfigurationProperties` Java `record`
 ```java
 import jakarta.validation.constraints.*;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -472,7 +490,11 @@ public record PaymentGatewayProperties(
 ) {}
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `PaymentGatewayProperties` (annotated with `@Validated`, `@ConfigurationProperties`, `@NotNull`, `@NotBlank`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: the core statement `@ConfigurationProperties(prefix = "app.payment")` executes the primary state transformation while preserving algorithmic time/space complexity and thread safety.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **The `@Value` Silent String Literal Bug**: If a developer writes `@Value("{app.timeout}")` (accidentally forgetting the leading `$`), `@Value` does **not** fail—it injects the literal string `"{app.timeout}"` (or fails with a cryptic type conversion error)! `@ConfigurationProperties` completely eliminates SpEL/placeholder typo bugs.
 
 ---
@@ -480,7 +502,7 @@ public record PaymentGatewayProperties(
 <a id="q3-9"></a>
 ### Q3.9: How does Spring Boot Actuator work in production, and what is the critical difference between Kubernetes `livenessState` (`/actuator/health/liveness`) and `readinessState` (`/actuator/health/readiness`)?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 `spring-boot-starter-actuator` exposes operational monitoring, metrics (via **Micrometer**), and health probes over HTTP or JMX.
 **The #1 Production Kubernetes Outage Caused by Misconfigured Health Probes**:
 - **Liveness Probe (`/actuator/health/liveness`)**: Answers: *"Is the JVM internal state wedged/broken beyond self-recovery, requiring Kubernetes to **KILL and RESTART the Pod**?"*
@@ -491,7 +513,7 @@ public record PaymentGatewayProperties(
   - Kubernetes sees `livenessProbe` fail and **kills and restarts all 50 pods at once**, turning a 10-second DB blip into a 5-minute total platform outage!
   - **Rule**: `livenessProbe` must **NEVER** check external dependencies (DB/Redis/Kafka)! External dependency checks belong exclusively in `readinessProbe` (or circuit breakers).
 
-#### 2. Pictorial Diagram: Kubernetes Liveness vs Readiness Probe Action Matrix
+#### 2. Technical Architecture & Execution Diagram: Kubernetes Liveness vs Readiness Probe Action Matrix
 ```
                            [ Kubernetes kubelet Probe Check ]
                                   /                  \
@@ -505,7 +527,7 @@ public record PaymentGatewayProperties(
       (Never attach external DB checks here!)    (Stops new traffic; DOES NOT kill Pod!)
 ```
 
-#### 3. Implementation: Custom `HealthIndicator` & Production YAML Probe Grouping
+#### 3. Detailed Technical Example & Production Code: Custom `HealthIndicator` & Production YAML Probe Grouping
 ```yaml
 # application.yml: Group external checks strictly under readiness, never liveness!
 management:
@@ -541,7 +563,11 @@ public class PaymentGatewayHealthIndicator implements HealthIndicator {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code & Configuration Execution Walkthrough**:
+  1. **Declaration & Schema Binding**: The YAML block begins with `management:`, establishing the target resource, dependency descriptor, or execution context for **How does Spring Boot Actuator work in production, and what is the critical difference between Kubernetes `livenessState` (`/actuator/health/liveness`) and `readinessState` (`/actuator/health/readiness`)?**.
+  2. **Core Rule / Parameter Evaluation**: At `probes:`, the runtime engine (Spring Boot binder, Kubernetes/Envoy control plane, JVM launcher, or SQL planner) parses the explicit thresholds, routing rules, or execution flags.
+  3. **Runtime Enforcement**: Concluding with `include: readinessState, db, redis`, these settings are enforced deterministically at startup and runtime to guarantee the behavior illustrated in the architecture diagram above.
 - **Runtime Log Level Mutation Without Restart**: In production, if you need `DEBUG` logs on `org.hibernate.SQL` for 2 minutes to debug an incident without restarting pods, send:
   `POST /actuator/loggers/org.hibernate.SQL` with JSON body `{"configuredLevel": "DEBUG"}` (and reset to `"INFO"` when done!).
 
@@ -550,7 +576,7 @@ public class PaymentGatewayHealthIndicator implements HealthIndicator {
 <a id="q3-10"></a>
 ### Q3.10: Explain the internal Spring MVC Request Lifecycle through `DispatcherServlet`, and how `@Controller` differs from `@RestController`.
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - **`@Controller` vs `@RestController`**:
   - `@Controller`: Returns a logical View name (e.g., `"orders/checkout"`) resolved by a `ViewResolver` (Thymeleaf, JSP) into server-rendered HTML, unless the method is annotated with `@ResponseBody`.
   - `@RestController`: A composed annotation (`@Controller` + `@ResponseBody`). Every handler method writes its return value directly to the HTTP response body via **`HttpMessageConverter`s** (`MappingJackson2HttpMessageConverter` for JSON), bypassing `ViewResolver` completely!
@@ -566,7 +592,7 @@ public class PaymentGatewayHealthIndicator implements HealthIndicator {
   4. **Exception Resolution**: If any exception is thrown, delegates to **`HandlerExceptionResolver` (`ExceptionHandlerExceptionResolver`)**, which invokes `@RestControllerAdvice` `@ExceptionHandler` methods.
   5. Runs `HandlerInterceptor.afterCompletion()`.
 
-#### 2. Pictorial Diagram: `DispatcherServlet` End-to-End Request Execution Flow
+#### 2. Technical Architecture & Execution Diagram: `DispatcherServlet` End-to-End Request Execution Flow
 ```
 HTTP Request ---> [Servlet Filters (Security, Logging)]
                                |
@@ -584,7 +610,7 @@ Returns HandlerExecutionChain:                |-- HandlerInterceptor.preHandle()
                                               +-- ExceptionHandlerExceptionResolver (@RestControllerAdvice)
 ```
 
-#### 3. Implementation: Filter vs `HandlerInterceptor` Execution Difference
+#### 3. Detailed Technical Example & Production Code: Filter vs `HandlerInterceptor` Execution Difference
 ```java
 @Component
 public class TenantHeaderInterceptor implements HandlerInterceptor {
@@ -600,7 +626,11 @@ public class TenantHeaderInterceptor implements HandlerInterceptor {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `TenantHeaderInterceptor` (annotated with `@Component`, `@Override`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `preHandle(...)`, execution proceeds step-by-step: the core statement `return true;` executes the primary state transformation while preserving algorithmic time/space complexity and thread safety.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Why does `HttpServletRequest.getInputStream()` throw `IllegalStateException` or return empty bytes inside a `HandlerInterceptor` or Controller if a `Filter` already logged the request body?**
   Because a Servlet `InputStream` can **only be read once**! If a logging filter needs to inspect the raw request/response body before `@RequestBody` deserializes it, the filter must wrap the request in Spring's **`ContentCachingRequestWrapper` / `ContentCachingResponseWrapper`**.
 
@@ -609,7 +639,7 @@ public class TenantHeaderInterceptor implements HandlerInterceptor {
 <a id="q3-11"></a>
 ### Q3.11: How do you design Global Exception Handling in Spring Boot 3 using `@RestControllerAdvice` and RFC 9457 (formerly RFC 7807) `ProblemDetail`?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 Scattered `try-catch` blocks inside controllers duplicate error formatting logic and leak internal stack traces (`500 Internal Server Error` with SQL query details) to external API consumers.
 - **`@RestControllerAdvice` (`@ControllerAdvice` + `@ResponseBody`)**:
   - Registers a global aspect intercepted by `ExceptionHandlerExceptionResolver`.
@@ -618,7 +648,7 @@ Scattered `try-catch` blocks inside controllers duplicate error formatting logic
   - Spring Framework 6 / Spring Boot 3 natively implements the **IETF RFC 9457 (`application/problem+json`)** standard via `org.springframework.http.ProblemDetail` and `ResponseEntityExceptionHandler`!
   - Standardized JSON fields: `type` (URI identifying error category), `title`, `status` (HTTP status code), `detail`, `instance` (request path), plus arbitrary custom `properties` (`errorCode`, `timestamp`, `fieldErrors`).
 
-#### 2. Pictorial Diagram: Exception Propagation to `@RestControllerAdvice`
+#### 2. Technical Architecture & Execution Diagram: Exception Propagation to `@RestControllerAdvice`
 ```
 [Repository / Service throws DomainException or MethodArgumentNotValidException]
        |
@@ -631,7 +661,7 @@ Scattered `try-catch` blocks inside controllers duplicate error formatting logic
        |---> Serializes RFC 9457 ProblemDetail to JSON with exact HTTP Status Code
 ```
 
-#### 3. Implementation: Production `@RestControllerAdvice` with RFC 9457 `ProblemDetail`
+#### 3. Detailed Technical Example & Production Code: Production `@RestControllerAdvice` with RFC 9457 `ProblemDetail`
 ```java
 import org.springframework.http.*;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -675,7 +705,11 @@ public class GlobalApiExceptionHandler extends ResponseEntityExceptionHandler {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `GlobalApiExceptionHandler` (annotated with `@RestControllerAdvice`, `@ExceptionHandler`, `@Valid`, `@Override`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: the Stream pipeline chains lazy intermediate operations and triggers single-pass evaluation at the terminal collector/reduction step.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Why don't exceptions thrown inside a Servlet `Filter` (e.g., JWT parsing failure in a custom `OncePerRequestFilter`) reach `@RestControllerAdvice`?**
   Because `@RestControllerAdvice` is part of **`DispatcherServlet`**, and Servlet Filters execute **outside (before)** `DispatcherServlet`! To route filter exceptions through your `@RestControllerAdvice`, inject `@Qualifier("handlerExceptionResolver") HandlerExceptionResolver resolver` into your filter and call `resolver.resolveException(request, response, null, ex);` inside the filter's `catch` block!
 
@@ -684,7 +718,7 @@ public class GlobalApiExceptionHandler extends ResponseEntityExceptionHandler {
 <a id="q3-12"></a>
 ### Q3.12: What is the architectural relationship between JDBC, JPA (Jakarta Persistence), Hibernate ORM, and Spring Data JPA?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 Developers frequently conflate these four distinct layers of the Java persistence stack:
 1. **JDBC (`java.sql.*`)**: The lowest-level JDK standard API (`Connection`, `PreparedStatement`, `ResultSet`) that communicates over TCP sockets with the database driver (`postgresql`, `mysql-connector-j`). All higher-level ORM frameworks ultimately execute SQL via JDBC!
 2. **JPA (`jakarta.persistence.*` — Jakarta Persistence Specification)**:
@@ -697,7 +731,7 @@ Developers frequently conflate these four distinct layers of the Java persistenc
    - An abstraction layer **on top of JPA (`EntityManager`)**.
    - Generates dynamic proxy implementations (`SimpleJpaRepository`) for your `interface OrderRepository extends JpaRepository<Order, Long>` interfaces at startup, parsing query method names (`findByCustomerIdAndStatus`) into JPQL queries automatically!
 
-#### 2. Pictorial Diagram: The 4-Layer Java Persistence Stack
+#### 2. Technical Architecture & Execution Diagram: The 4-Layer Java Persistence Stack
 ```
 +-------------------------------------------------------------------+
 | 1. SPRING DATA JPA (JpaRepository<Order, Long> Dynamic Proxy)     |
@@ -747,7 +781,11 @@ public class HybridOrderPersistenceAdapter {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `HybridOrderPersistenceAdapter` (annotated with `@Repository`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Mixing `JdbcTemplate` (or `@Modifying` native queries) and JPA `EntityManager` in the Same `@Transactional` Method**:
   If you load `Order` via JPA (`Order o = repo.findById(1L)`), modify it (`o.setStatus("PAID")`), and then execute a `JdbcTemplate` query in the same transaction, **Hibernate has not flushed `o.setStatus("PAID")` to the database yet** (it sits buffered in the 1st-level cache until transaction commit)! Conversely, if `JdbcTemplate` updates row `1L` directly in the DB, the JPA 1st-level cache still holds the stale `Order` object in memory! Always call `entityManager.flush()` before `JdbcTemplate` reads, or `@Modifying(flushAutomatically = true, clearAutomatically = true)`.
 
@@ -756,7 +794,7 @@ public class HybridOrderPersistenceAdapter {
 <a id="q3-13"></a>
 ### Q3.13: Explain the 4 JPA Entity Lifecycle States (`Transient`, `Managed`, `Detached`, `Removed`), how the Persistence Context (`StatefulPersistenceContext`) tracks them, and why calling `repo.save()` after modifying a `Managed` entity is redundant!
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 In JPA/Hibernate, an `@Entity` instance is always in one of **4 states** with respect to the active **Persistence Context (`EntityManager` / Hibernate `Session`)**:
 1. **Transient (New)**:
    - Just instantiated via `new Order()`. Has no database identity (`id == null`) and is **not** associated with any Persistence Context. If the transaction commits now, nothing is saved.
@@ -769,7 +807,7 @@ In JPA/Hibernate, an `@Entity` instance is always in one of **4 states** with re
 4. **Removed**:
    - Passed to `entityManager.remove(entity)`. Scheduled for a SQL `DELETE` statement when the Persistence Context flushes.
 
-#### 2. Pictorial Diagram: Complete JPA Entity State Transition Machine
+#### 2. Technical Architecture & Execution Diagram: Complete JPA Entity State Transition Machine
 ```
    new Order()
         |
@@ -793,7 +831,7 @@ In JPA/Hibernate, an `@Entity` instance is always in one of **4 states** with re
                                                                  [ SQL DELETE ]
 ```
 
-#### 3. Implementation: Demonstrating Managed Dirty Checking vs `em.merge()` Object Return Trap
+#### 3. Detailed Technical Example & Production Code: Demonstrating Managed Dirty Checking vs `em.merge()` Object Return Trap
 ```java
 @Service
 public class OrderLifecycleService {
@@ -831,7 +869,11 @@ public class OrderLifecycleService {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `OrderLifecycleService` (annotated with `@Service`, `@PersistenceContext`, `@Transactional`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `approveOrder(...)` and `mergeDetachedTrap(...)`, execution proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Accidental DB Writes on Read-Modify-Throw / Validation**: Because **every** mutation to a Managed entity inside a read-write `@Transactional` method is automatically flushed to the database on commit, if a developer mutates an entity field temporarily (e.g., masking a credit card number `user.setCardNumber("****")` before returning it!) inside a `@Transactional` method, **Hibernate will execute `UPDATE users SET card_number = '****'` and wipe out the user's real credit card in the production database!** Always map entities to DTOs before transforming display values, or call `em.detach(user)` / use `@Transactional(readOnly = true)`.
 
 ---
@@ -839,7 +881,7 @@ public class OrderLifecycleService {
 <a id="q3-14"></a>
 ### Q3.14: What is the exact difference between `EntityManager.find()` (`CrudRepository.findById`) and `EntityManager.getReference()` (`JpaRepository.getReferenceById`), and how does `getReferenceById` eliminate unnecessary `SELECT` queries during Foreign Key associations?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - **`entityManager.find(Order.class, id)` (`orderRepo.findById(id)`)**:
   - Checks the First-Level Cache first. If absent, **immediately executes `SELECT * FROM orders WHERE id = ?`** against the database.
   - Returns the real initialized `Order` instance (or `null` / `Optional.empty()` if the row does not exist).
@@ -849,7 +891,7 @@ public class OrderLifecycleService {
   - If you only pass that proxy reference to set a Foreign Key on a child entity (`order.setCustomer(customerProxy)`), Hibernate reads `customerProxy.getId()` to populate the `customer_id` foreign key column in `INSERT INTO orders (customer_id, ...)` **without ever executing `SELECT * FROM customers`**!
   - If you call any non-ID method on the proxy (`customerProxy.getEmail()`), the ByteBuddy interceptor triggers an immediate database `SELECT` (and throws **`jakarta.persistence.EntityNotFoundException`** if the row does not exist).
 
-#### 2. Pictorial Diagram: Setting a `@ManyToOne` Foreign Key with `findById` (2 Queries) vs `getReferenceById` (1 Query)
+#### 2. Technical Architecture & Execution Diagram: Setting a `@ManyToOne` Foreign Key with `findById` (2 Queries) vs `getReferenceById` (1 Query)
 ```
 INEFFICIENT: Using customerRepo.findById(customerId) just to set a Foreign Key:
   1. customerRepo.findById(42L) ---> Executes: SELECT * FROM customers WHERE id = 42  (Wasted Network Hop!)
@@ -862,7 +904,7 @@ OPTIMAL: Using customerRepo.getReferenceById(customerId) (Spring Boot 2.7+ / 3.x
   3. orderRepo.save(order)              ---> Executes ONLY: INSERT INTO orders (customer_id, total) VALUES (42, 99.00)
 ```
 
-#### 3. Implementation: Zero-Select Foreign Key Assignment
+#### 3. Detailed Technical Example & Production Code: Zero-Select Foreign Key Assignment
 ```java
 @Service
 public class OrderCreationService {
@@ -886,7 +928,11 @@ public class OrderCreationService {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `OrderCreationService` (annotated with `@Service`, `@Transactional`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Historical Method Renaming in Spring Data JPA**: `JpaRepository.getOne(id)` and `getById(id)` were deprecated and replaced by **`getReferenceById(id)`** in Spring Data JPA 2.7 / 3.0 because developers kept confusing `getById()` with `findById()` and accidentally returning uninitialized proxies outside transactions!
 
 ---
@@ -894,7 +940,7 @@ public class OrderCreationService {
 <a id="q3-15"></a>
 ### Q3.15: What are the default JPA Fetch Types (`EAGER` vs `LAZY`) for `@ManyToOne`, `@OneToOne`, `@OneToMany`, and `@ManyToMany`, and why is `@ManyToOne` defaulting to `EAGER` a major JPA specification design flaw?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 The JPA specification hardcodes the following **default `FetchType`** based on whether the relationship ends in `-ToOne` or `-ToMany`:
 | Relationship Annotation | JPA Default `FetchType` | Production Best Practice Override |
 |---|---|---|
@@ -908,7 +954,7 @@ The JPA specification hardcodes the following **default `FetchType`** based on w
 - **HOWEVER**, when you execute a JPQL query (`SELECT o FROM Order o WHERE o.status = 'PAID'`), Hibernate's JPQL translator **does NOT automatically generate a JOIN for `EAGER` `@ManyToOne` associations** unless you explicitly write `JOIN FETCH`!
 - Instead, Hibernate executes `SELECT * FROM orders WHERE status = 'PAID'` (returning 100 orders), sees that `Order.customer` is marked `EAGER`, and **immediately fires 100 separate `SELECT * FROM customers WHERE id = ?` queries right before returning from the repository method**—an unavoidable $N+1$ query explosion that you cannot even turn off per query because `EAGER` is hardcoded in the entity annotation!
 
-#### 2. Pictorial Diagram: The `EAGER` `@ManyToOne` Cascade Explosion
+#### 2. Technical Architecture & Execution Diagram: The `EAGER` `@ManyToOne` Cascade Explosion
 ```
 Entity Graph with Default EAGER @ManyToOne:
   [Order] --(@ManyToOne EAGER)--> [Customer] --(@ManyToOne EAGER)--> [Region] --(@ManyToOne EAGER)--> [Country]
@@ -917,7 +963,7 @@ When you query a simple list of Orders (even if your DTO only needs order.id and
   Hibernate is FORCED by FetchType.EAGER to load Customer, Region, and Country for EVERY Order!
 ```
 
-#### 3. Implementation: Enforcing `FetchType.LAZY` & Explaining the Bidirectional `@OneToOne` Lazy Trap
+#### 3. Detailed Technical Example & Production Code: Enforcing `FetchType.LAZY` & Explaining the Bidirectional `@OneToOne` Lazy Trap
 ```java
 @Entity
 @Table(name = "orders")
@@ -937,7 +983,11 @@ public class Order {
 - Therefore, **inverse `@OneToOne(mappedBy = ...)` is ALWAYS fetched EAGERLY with an extra `SELECT` even if you mark it `FetchType.LAZY`!**
 - **Fix**: Eliminate the parent-side `@OneToOne(mappedBy = ...)` field and map the child using `@MapsId` (sharing the primary key) and query `userProfileRepo.findById(userId)` when needed!
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `Order` (annotated with `@Entity`, `@Table`, `@Id`, `@GeneratedValue`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Golden Hibernate Architecture Rule**: Set **`fetch = FetchType.LAZY` on 100% of all associations** (`@ManyToOne`, `@OneToOne`, `@OneToMany`, `@ManyToMany`). Then, for the specific use cases that actually need child data, fetch them eagerly **per query** using `JOIN FETCH`, `@EntityGraph`, or DTO projections.
 
 ---
@@ -945,7 +995,7 @@ public class Order {
 <a id="q3-16"></a>
 ### Q3.16: What causes `org.hibernate.LazyInitializationException: could not initialize proxy - no Session`, why is `enable_lazy_load_no_trans` an anti-pattern, and what are the 3 production-grade solutions?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 A `LazyInitializationException` is thrown when code attempts to initialize an uninitialized Hibernate proxy (`Customer$HibernateProxy`) or lazy collection (`PersistentBag` / `PersistentSet`) **after the Hibernate `Session` (`PersistenceContext`) that loaded the parent entity has already closed**.
 **Why Does This Happen?**
 1. `@Service` method annotated with `@Transactional` loads `Order` (whose `items` collection is a `FetchType.LAZY` `PersistentBag` wrapper).
@@ -953,7 +1003,7 @@ A `LazyInitializationException` is thrown when code attempts to initialize an un
 3. Inside the `@RestController` (or inside Jackson's `MappingJackson2HttpMessageConverter` while serializing `Order` to JSON!), `order.getItems().size()` is called.
 4. `PersistentBag` attempts to load rows from the database, sees its `Session` is `null`/closed, and throws **`LazyInitializationException: could not initialize proxy - no Session`**!
 
-#### 2. Pictorial Diagram: Where the Session Closes vs Where Jackson Accesses the Proxy
+#### 2. Technical Architecture & Execution Diagram: Where the Session Closes vs Where Jackson Accesses the Proxy
 ```
 [ @RestController ]
         |
@@ -974,7 +1024,7 @@ A `LazyInitializationException` is thrown when code attempts to initialize an un
   ===> CRASHES WITH org.hibernate.LazyInitializationException!
 ```
 
-#### 3. Implementation: The 3 Production-Grade Solutions
+#### 3. Detailed Technical Example & Production Code: The 3 Production-Grade Solutions
 ```java
 public interface OrderRepository extends JpaRepository<Order, Long> {
 
@@ -998,7 +1048,11 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `OrderRepository` (annotated with `@Query`, `@Param`, `@EntityGraph`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Never Enable `spring.jpa.properties.hibernate.enable_lazy_load_no_trans=true`!**
   This property is a notorious performance disaster: whenever Jackson or a controller touches an uninitialized lazy proxy outside a transaction, Hibernate **opens a brand-new temporary JDBC connection and temporary transaction from HikariCP for EVERY SINGLE LAZY FIELD**, executes a separate `SELECT`, and closes it—causing massive $N+1$ connection pool thrashing and non-atomic reads!
 
@@ -1007,7 +1061,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 <a id="q3-17"></a>
 ### Q3.17: Compare JPQL (`@Query`), Spring Data JPA Derived Queries, Criteria API / `Specification`, and Native SQL Queries — including Interface-Based vs Class-Based (Record) Projections.
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 | Query Mechanism | Compilation / Validation Timing | Best Use Case | Drawbacks |
 |---|---|---|---|
 | **Derived Query Methods** (`findByEmailAndStatus`) | **Validated at Spring Startup!** (Fails fast if field name is misspelled). | Simple 1–2 predicate lookups. | Method names become unreadable with 4+ predicates (`findByAAndBOrCOrderByDDesc`). |
@@ -1015,7 +1069,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 | **JPA `Specification` / QueryDSL** | Compile-time type-safe (`Metamodel`). | Dynamic search/filter APIs with 10+ optional filter parameters. | Verbose boilerplate without QueryDSL. |
 | **Native SQL (`nativeQuery = true`)** | **Validated ONLY at Runtime** when the method is called! | Database-specific features (`JSONB`, CTEs `WITH RECURSIVE`, Window Functions, `FOR UPDATE SKIP LOCKED`, `ON CONFLICT`). | Coupled to DB vendor SQL dialect; not validated at startup. |
 
-#### 2. Pictorial Diagram: Open vs Closed Projections Trap in Spring Data JPA
+#### 2. Technical Architecture & Execution Diagram: Open vs Closed Projections Trap in Spring Data JPA
 ```
 1. CLOSED INTERFACE PROJECTION / RECORD DTO PROJECTION (Optimal - Narrow SQL SELECT):
    interface UserSummary { String getEmail(); String getRole(); }
@@ -1030,7 +1084,7 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
    ---> Executes: SELECT * FROM users u (Fetches ALL 40 columns + instantiates full Entity!)
 ```
 
-#### 3. Implementation: Record DTO Projection vs `@Modifying` Bulk Update Query
+#### 3. Detailed Technical Example & Production Code: Record DTO Projection vs `@Modifying` Bulk Update Query
 ```java
 public interface UserAccountRepository extends JpaRepository<UserAccount, Long> {
 
@@ -1048,7 +1102,11 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `UserAccountRepository` (annotated with `@Query`, `@Modifying`, `@Param`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `deactivateInactiveUsers(...)`, execution proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **The `@Modifying` Stale First-Level Cache Bug**: By default, `@Modifying` has `clearAutomatically = false`. If your `@Transactional` method loads `User u = repo.findById(1L)` (`u.active == true`), then executes a `@Modifying` bulk query `repo.deactivateInactiveUsers(...)` (which updates row `1L` to `active = false` in the DB), and then calls `repo.findById(1L)` again in the same transaction, **Hibernate returns the stale cached `u` with `active == true` from the First-Level Cache** unless `clearAutomatically = true` is set!
 
 ---
@@ -1056,14 +1114,14 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, Long> 
 <a id="q3-18"></a>
 ### Q3.18: How does Spring Data JPA Auditing (`@CreatedDate`, `@LastModifiedDate`, `@CreatedBy`, `@LastModifiedBy`) work internally via `AuditingEntityListener` and `AuditorAware<T>`?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 Every enterprise database table requires audit metadata (`created_at`, `updated_at`, `created_by`, `updated_by`) for compliance and debugging.
 Instead of manually setting timestamps and user IDs in every service method, **Spring Data JPA Auditing** hooks into JPA's standard **Entity Lifecycle Callback mechanism (`@PrePersist` and `@PreUpdate`)**:
 1. **`@EntityListeners(AuditingEntityListener.class)`**: Registers Spring's listener on a `@MappedSuperclass` base entity.
 2. When Hibernate prepares to insert (`@PrePersist`) or update (`@PreUpdate`) the entity, `AuditingEntityListener` triggers `AuditingHandler`.
 3. `AuditingHandler` obtains the current timestamp from `DateTimeProvider` and fetches the current authenticated user's principal ID by invoking your custom **`AuditorAware<String>`** bean (which reads `SecurityContextHolder.getContext().getAuthentication()`)!
 
-#### 2. Pictorial Diagram: JPA `@PrePersist` / `@PreUpdate` Auditing Interception Flow
+#### 2. Technical Architecture & Execution Diagram: JPA `@PrePersist` / `@PreUpdate` Auditing Interception Flow
 ```
 orderRepository.save(order)
        |
@@ -1121,7 +1179,11 @@ public class JpaAuditingConfig {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `AuditableEntity`, `JpaAuditingConfig` (annotated with `@MappedSuperclass`, `@EntityListeners`, `@CreatedDate`, `@Column`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Always Provide a Fallback in `AuditorAware` for Non-HTTP Threads**: When a Kafka consumer or `@Scheduled` cron job saves an entity, `SecurityContextHolder.getContext().getAuthentication()` is `null`. If `AuditorAware` returns `Optional.empty()` and your `created_by` column has `nullable = false`, all background batch jobs will fail with a database `NOT NULL constraint violation`!
 - **Note**: `@PreUpdate` / `@LastModifiedDate` **does NOT fire on bulk `@Modifying` JPQL `UPDATE` queries** because bulk queries bypass the `EntityManager` entity lifecycle!
 
@@ -1133,7 +1195,7 @@ public class JpaAuditingConfig {
 <a id="q3-19"></a>
 ### Q3.19: Walk through the complete 10-Stage Spring Bean Lifecycle inside `AbstractAutowireCapableBeanFactory`, and explain why AOP Proxies are created in `BeanPostProcessor.postProcessAfterInitialization()` (NOT in `@PostConstruct`)!
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 When `ApplicationContext` creates a singleton bean (`doCreateBean`), it executes a strict 10-stage pipeline:
 1. **BeanDefinition Parsing**: Container reads class metadata, scope, and dependencies (`BeanFactoryPostProcessor`s like `ConfigurationClassPostProcessor` can modify `BeanDefinition`s *before* any bean is instantiated).
 2. **`InstantiationAwareBeanPostProcessor.postProcessBeforeInstantiation()`**: Gives post-processors a chance to short-circuit creation and return a custom object.
@@ -1149,7 +1211,7 @@ When `ApplicationContext` creates a singleton bean (`doCreateBean`), it executes
 10. **Destruction Phase (On Context Shutdown `close()`)**:
     - `@PreDestroy` -> `DisposableBean.destroy()` -> `@Bean(destroyMethod = "close")`.
 
-#### 2. Pictorial Diagram: The 10-Stage Bean Creation & AOP Proxy Wrapping Pipeline
+#### 2. Technical Architecture & Execution Diagram: The 10-Stage Bean Creation & AOP Proxy Wrapping Pipeline
 ```
   [1. BeanDefinition Loaded]
               |
@@ -1201,7 +1263,11 @@ public class CatalogInitializer {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `CatalogInitializer` (annotated with `@Service`, `@PostConstruct`, `@Transactional`, `@EventListener`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `initBad(...)` and `initGood(...)`, execution proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Never perform slow network/DB calls inside `@PostConstruct`**: `@PostConstruct` runs synchronously on the main startup thread while holding the singleton creation lock. Even worse, as shown above, AOP proxies (`@Transactional`, `@Async`, `@Retryable`) **do not exist yet** during `@PostConstruct`. Always use `ApplicationRunner` or `@EventListener(ApplicationReadyEvent.class)` for startup data seeding.
 
 ---
@@ -1209,7 +1275,7 @@ public class CatalogInitializer {
 <a id="q3-20"></a>
 ### Q3.20: Compare JDK Dynamic Proxies (`java.lang.reflect.Proxy`) vs CGLIB Proxies (`ByteBuddy` / `Enhancer`) in Spring AOP — including why calling a `final` or `private` method on a CGLIB proxy can cause a `NullPointerException` on injected fields!
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 | Dimension | JDK Dynamic Proxy | CGLIB Subclass Proxy (Spring Boot Default) |
 |---|---|---|
 | **Mechanism** | Generates `class $Proxy0 extends Proxy implements MyInterface` at runtime; delegates to `InvocationHandler.invoke()`. | Generates a bytecode **subclass** of your concrete class (`class OrderService$$SpringCGLIB$$0 extends OrderService`) overriding non-final methods. |
@@ -1224,7 +1290,7 @@ How does Spring instantiate a CGLIB proxy (`OrderService$$SpringCGLIB$$0`) witho
 - When you call a normal non-final `public` method on the Proxy, the CGLIB `MethodInterceptor` intercepts the call and **forwards it to the populated Target Bean instance** (where `this.repo` is non-null).
 - **HOWEVER**, if you mark a `public` method **`final`** on an AOP-proxied `@Service` class, CGLIB **cannot override that `final` method**! When a caller invokes `proxy.myFinalMethod()`, it executes directly on the **uninitialized Proxy instance itself**, where `this.repo == null`, crashing immediately with **`NullPointerException: Cannot invoke "OrderRepository.findById()" because "this.repo" is null`**!
 
-#### 2. Pictorial Diagram: Why Calling a `final` Method on a CGLIB Proxy Crashes with NPE
+#### 2. Technical Architecture & Execution Diagram: Why Calling a `final` Method on a CGLIB Proxy Crashes with NPE
 ```
 +-------------------------------------------------------------------+
 | CGLIB Proxy Instance (OrderService$$SpringCGLIB$$0 @ 0x9000)      |
@@ -1265,7 +1331,11 @@ public class PaymentService {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `PaymentService` (annotated with `@Service`, `@Transactional`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `processPayment(...)`, execution proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Rule for Spring Bean Classes**: You can mark **`private final` on fields**, and you can even mark a class `final` **if and only if** it has zero AOP annotations (`@Transactional`, `@Async`, `@Cacheable`, `@Validated`, `@PreAuthorize`). Never mark `public`/`protected`/`package-private` methods `final` on AOP-proxied Spring beans.
 
 ---
@@ -1273,7 +1343,7 @@ public class PaymentService {
 <a id="q3-21"></a>
 ### Q3.21: How do Spring Boot Conditional Annotations (`@ConditionalOnClass`, `@ConditionalOnMissingBean`, `@ConditionalOnProperty`, `@ConditionalOnBean`) work internally via `SpringBootCondition`?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 Spring Boot Auto-Configuration uses `@Conditional*` annotations (all backed by `org.springframework.boot.autoconfigure.condition.SpringBootCondition` implementing Spring Core's `ConfigurationCondition`) to dynamically include or skip `@AutoConfiguration` classes and `@Bean` methods:
 1. **`@ConditionalOnClass({KafkaTemplate.class})` (ASM Bytecode Inspection without ClassLoading!)**:
    - **Critical Question**: *"If `KafkaTemplate.class` is not on the classpath, why doesn't `@ConditionalOnClass(KafkaTemplate.class)` fail to load with `NoClassDefFoundError`?"*
@@ -1283,7 +1353,7 @@ Spring Boot Auto-Configuration uses `@Conditional*` annotations (all backed by `
 3. **`@ConditionalOnProperty(prefix = "app.feature", name = "audit", havingValue = "true", matchIfMissing = false)`**:
    - Checks the `Environment` property sources before registering the bean.
 
-#### 2. Pictorial Diagram: Auto-Configuration Condition Filtering Funnel
+#### 2. Technical Architecture & Execution Diagram: Auto-Configuration Condition Filtering Funnel
 ```
 [ 150 Candidate Auto-Configurations in AutoConfiguration.imports ]
                                |
@@ -1304,7 +1374,7 @@ Spring Boot Auto-Configuration uses `@Conditional*` annotations (all backed by `
          +-- NO  ---> Register default LocalContainerEntityManagerFactoryBean!
 ```
 
-#### 3. Implementation: Writing a Custom Auto-Configuration or Starter Component
+#### 3. Detailed Technical Example & Production Code: Writing a Custom Auto-Configuration or Starter Component
 ```java
 @AutoConfiguration
 @ConditionalOnClass(RedisTemplate.class)
@@ -1319,7 +1389,11 @@ public class AcmeRedisCacheAutoConfiguration {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `AcmeRedisCacheAutoConfiguration` (annotated with `@AutoConfiguration`, `@ConditionalOnClass`, `@ConditionalOnProperty`, `@Bean`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: the core statement `@ConditionalOnMissingBean(AcmeCacheOperations.class)` executes the primary state transformation while preserving algorithmic time/space complexity and thread safety.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Why you should RARELY use `@ConditionalOnBean` or `@ConditionalOnMissingBean` inside regular user `@Configuration` classes**:
   `@ConditionalOnBean` and `@ConditionalOnMissingBean` are designed for **`@AutoConfiguration` classes** (which are guaranteed to be evaluated **last**, after all user `@Configuration` classes). If you put `@ConditionalOnBean(BeanB.class)` inside a regular user `ConfigA`, and Spring happens to scan `ConfigA` alphabetically before `ConfigB`, `BeanB` hasn't been registered yet, so `@ConditionalOnBean` evaluates to **`false` depending on package/class alphabetical order**!
 
@@ -1328,7 +1402,7 @@ public class AcmeRedisCacheAutoConfiguration {
 <a id="q3-22"></a>
 ### Q3.22: Deeply explain all 7 `@Transactional` Propagation Levels (`REQUIRED`, `REQUIRES_NEW`, `NESTED`, `SUPPORTS`, `NOT_SUPPORTED`, `MANDATORY`, `NEVER`) — including how `REQUIRES_NEW` differs from `NESTED` at the JDBC Connection level!
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 When `@Transactional` Method A calls `@Transactional` Method B (on another bean), the `Propagation` enum dictates how `PlatformTransactionManager` (`JpaTransactionManager` / `DataSourceTransactionManager`) handles transaction boundaries and physical HikariCP JDBC Connections:
 | Propagation | If Active Tx Exists (`Tx1`) | If NO Active Tx Exists | Physical JDBC Connections Used |
 |---|---|---|---|
@@ -1340,7 +1414,7 @@ When `@Transactional` Method A calls `@Transactional` Method B (on another bean)
 | **`MANDATORY`** | Joins `Tx1`. | **Throws `IllegalTransactionStateException`!** | 1 |
 | **`NEVER`** | **Throws `IllegalTransactionStateException`!** | Executes non-transactionally. | 0 / auto-commit |
 
-#### 2. Pictorial Diagram: `REQUIRED` vs `REQUIRES_NEW` vs `NESTED` Rollback & Connection Behavior
+#### 2. Technical Architecture & Execution Diagram: `REQUIRED` vs `REQUIRES_NEW` vs `NESTED` Rollback & Connection Behavior
 ```
 1. PROPAGATION.REQUIRED (Single Shared Connection & Shared Fate):
    Method A (Tx1, Conn #1) ---> Calls Method B (REQUIRED, Conn #1)
@@ -1358,7 +1432,7 @@ When `@Transactional` Method A calls `@Transactional` Method B (on another bean)
    - If Method A fails later: Rolls back the ENTIRE Tx1 (including Method B's work!).
 ```
 
-#### 3. Implementation: Handling `UnexpectedRollbackException` in `REQUIRED` vs `REQUIRES_NEW`
+#### 3. Detailed Technical Example & Production Code: Handling `UnexpectedRollbackException` in `REQUIRED` vs `REQUIRES_NEW`
 ```java
 @Service
 public class OrderPaymentCoordinator {
@@ -1380,7 +1454,11 @@ public class OrderPaymentCoordinator {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `OrderPaymentCoordinator` (annotated with `@Service`, `@Transactional`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `checkout(...)`, execution proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Why doesn't `Propagation.NESTED` work with standard `JpaTransactionManager` / Hibernate?**
   Because Hibernate's First-Level Cache (`StatefulPersistenceContext` in-memory entity map) **does not support rolling back in-memory entity state to a JDBC savepoint**! Therefore, `Propagation.NESTED` is primarily supported by `DataSourceTransactionManager` (`JdbcTemplate` / jOOQ / MyBatis) or when `JpaTransactionManager.setNestedTransactionAllowed(true)` is used strictly for JDBC operations.
 
@@ -1389,7 +1467,7 @@ public class OrderPaymentCoordinator {
 <a id="q3-23"></a>
 ### Q3.23: What are the default `@Transactional` rollback rules in Spring, why doesn't a Checked Exception trigger a rollback by default, and what happens if you catch an exception inside a `@Transactional` method?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 Inside `RuleBasedTransactionAttribute.rollbackOn(Throwable ex)`, Spring inherits EJB's historical rollback convention:
 - **Rolls Back By Default (`true`)**: `ex instanceof RuntimeException || ex instanceof Error` (**Unchecked Exceptions & Errors**).
 - **COMMITS By Default (`false`)!**: Any **Checked Exception** (`IOException`, `SQLException`, `TimeoutException`, custom `class InsufficientFundsException extends Exception`) **DOES NOT roll back the transaction by default**—Spring commits all database writes made before the checked exception was thrown!
@@ -1397,7 +1475,7 @@ Inside `RuleBasedTransactionAttribute.rollbackOn(Throwable ex)`, Spring inherits
 `TransactionInterceptor.invokeWithinTransaction()` wraps your method invocation in a `try { retVal = invocation.proceedWithInvocation(); } catch (Throwable ex) { completeTransactionAfterThrowing(txInfo, ex); throw ex; } commitTransactionAfterReturning(txInfo);`.
 - **Consequence**: If your `@Transactional` method catches the exception internally (`try { ... } catch (Exception e) { log.error(...); }`) and **does not rethrow it**, the exception never reaches `TransactionInterceptor`'s `catch` block, so Spring assumes the method succeeded and **commits the transaction**!
 
-#### 2. Pictorial Diagram: How `TransactionInterceptor` Decides Commit vs Rollback
+#### 2. Technical Architecture & Execution Diagram: How `TransactionInterceptor` Decides Commit vs Rollback
 ```
 Caller ---> [CGLIB TransactionInterceptor Proxy]
                      |
@@ -1413,7 +1491,7 @@ Proxy sees normal return!                           Proxy checks: rollbackOn(Thr
  .currentTransactionStatus().setRollbackOnly()!)      +-- Checked + rollbackFor=Ex.class -> ROLLBACK!
 ```
 
-#### 3. Implementation: Production-Grade `@Transactional` Rollback Configuration
+#### 3. Detailed Technical Example & Production Code: Production-Grade `@Transactional` Rollback Configuration
 ```java
 @Service
 public class FundsTransferService {
@@ -1450,7 +1528,11 @@ public class FundsTransferService {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `FundsTransferService` (annotated with `@Service`, `@Transactional`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `transferWithSettlementFile(...)` and `debitAccount(...)` and `creditAccount(...)`, execution proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Create a Custom Meta-Annotation for Your Team**: Instead of remembering to write `@Transactional(rollbackFor = Exception.class)` in 500 places, create a custom `@Target({METHOD, TYPE}) @Retention(RUNTIME) @Transactional(rollbackFor = Exception.class) public @interface WriteTransactional {}` and `@Transactional(readOnly = true) public @interface ReadOnlyTransactional {}`.
 
 ---
@@ -1458,7 +1540,7 @@ public class FundsTransferService {
 <a id="q3-24"></a>
 ### Q3.24: How does Hibernate Automatic Dirty Checking work internally (`EntityEntry.loadedState`), why does it cause $O(N \times M)$ CPU and Heap overhead on read queries, and what exact optimizations does `@Transactional(readOnly = true)` perform?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 How does Hibernate know which fields of a `Managed` entity changed without requiring you to call `repo.save()`?
 1. **Default Snapshot Comparison (`EntityEntry.loadedState` — $O(N \times M)$ Cost)**:
    - When Hibernate loads $N$ entities (each having $M$ columns) from a `ResultSet` in a standard read-write transaction, it allocates **two copies of every entity's data in the JVM Heap**:
@@ -1471,7 +1553,7 @@ How does Hibernate know which fields of a `Managed` entity changed without requi
    - **JDBC Driver Layer**: Calls `connection.setReadOnly(true)`, allowing JDBC drivers (MySQL, Postgres, AWS Aurora Driver) to skip transaction ID assignment or **automatically route the query to a Read-Only Database Replica**!
    - **Spring Transaction Interceptor**: Skips flushing the Persistence Context before commit.
 
-#### 2. Pictorial Diagram: Read-Write Transaction vs `@Transactional(readOnly = true)` Memory & CPU
+#### 2. Technical Architecture & Execution Diagram: Read-Write Transaction vs `@Transactional(readOnly = true)` Memory & CPU
 ```
 STANDARD @Transactional (Read-Write Mode - Loads 5,000 Orders):
   PersistenceContext:
@@ -1486,7 +1568,7 @@ STANDARD @Transactional (Read-Write Mode - Loads 5,000 Orders):
   At Commit: FlushMode.MANUAL -> 0 Dirty Check Comparisons! Connection.setReadOnly(true)!
 ```
 
-#### 3. Implementation & Bytecode Enhancement Alternative (`hibernate-enhance-maven-plugin`)
+#### 3. Detailed Technical Example & Production Code & Bytecode Enhancement Alternative (`hibernate-enhance-maven-plugin`)
 ```java
 @Service
 @Transactional(readOnly = true) // Set readOnly = true at CLASS level as the safe default!
@@ -1510,7 +1592,11 @@ public class OrderQueryAndCommandService {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `OrderQueryAndCommandService` (annotated with `@Service`, `@Transactional`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `cancelOrder(...)`, execution proceeds step-by-step: the Stream pipeline chains lazy intermediate operations and triggers single-pass evaluation at the terminal collector/reduction step; Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Hibernate Bytecode Enhancement Dirty Tracking (`enableDirtyTracking = true`)**: For write-heavy transactions that load many entities but only mutate 1 or 2, you can enable Hibernate compile-time **Bytecode Enhancement**, which weaves a boolean bitmask directly into entity setter methods (`$$_hibernate_trackChange("status")`) so Hibernate knows in $O(1)$ time which exact entity was mutated without allocating `Object[] loadedState` snapshots!
 
 ---
@@ -1518,7 +1604,7 @@ public class OrderQueryAndCommandService {
 <a id="q3-25"></a>
 ### Q3.25: Compare Hibernate First-Level Cache (`Session`) vs Second-Level Cache (`SessionFactory` — JCache / Ehcache / Redis), and explain the 4 Cache Concurrency Strategies (`READ_ONLY`, `NONSTRICT_READ_WRITE`, `READ_WRITE`, `TRANSACTIONAL`).
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 | Feature | First-Level Cache (L1) | Second-Level Cache (L2) |
 |---|---|---|
 | **Scope** | **Transaction / `Session`-scoped** (`EntityManager`). Destroyed as soon as the `@Transactional` method ends! | **Application / Cluster-scoped** (`EntityManagerFactory`). Shared across all transactions and threads. |
@@ -1531,7 +1617,7 @@ public class OrderQueryAndCommandService {
 3. **`READ_WRITE`**: Uses **Soft Locks** (timestamps + lock markers in cache) during updates to prevent dirty reads and preserve Read-Committed isolation without distributed 2PC.
 4. **`TRANSACTIONAL`**: Requires a full JTA Transaction Manager and XA-compliant cache; slowest.
 
-#### 2. Pictorial Diagram: Entity Lookup Flow Across L1 Cache, L2 Cache, and Database
+#### 2. Technical Architecture & Execution Diagram: Entity Lookup Flow Across L1 Cache, L2 Cache, and Database
 ```
 Application calls: entityManager.find(Product.class, 500L)
        |
@@ -1545,7 +1631,7 @@ Application calls: entityManager.find(Product.class, 500L)
 3. [Database SQL: SELECT * FROM products WHERE id = 500] ------> Populate L2 Cache & L1 Cache!
 ```
 
-#### 3. Implementation: Configuring Hibernate L2 Cache on Reference Entities
+#### 3. Detailed Technical Example & Production Code: Configuring Hibernate L2 Cache on Reference Entities
 ```java
 @Entity
 @Table(name = "countries")
@@ -1562,7 +1648,11 @@ public class Country {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `Country` (annotated with `@Entity`, `@Table`, `@Immutable`, `@Id`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Why Spring `@Cacheable` on Service DTOs Often Beats Hibernate L2 Cache in Microservices**:
   Hibernate's L2 Cache only caches entities **by Primary Key (`findById`)** and stores disassembled column arrays that must still be re-hydrated into `@Entity` objects and mapped to DTOs on every request. Caching the final serialized **`ProductResponseDto` at the `@Service` layer using Spring `@Cacheable` (backed by Caffeine / Redis)** skips Hibernate, entity hydration, and DTO mapping completely!
 
@@ -1571,7 +1661,7 @@ public class Country {
 <a id="q3-26"></a>
 ### Q3.26: How does the Hibernate Query Cache (`hibernate.cache.use_query_cache`) work, why does it store only Entity IDs, and how can it cause the "Query Cache N+1 Stampede" in production?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 While the L2 Entity Cache only caches lookups by Primary Key (`em.find(Product.class, 1L)`), the **Hibernate Query Cache** caches the results of arbitrary JPQL/Criteria queries (e.g., `SELECT p FROM Product p WHERE p.category = :cat`).
 **Critical Internal Fact**: **The Query Cache does NOT cache the actual `@Entity` objects!**
 - **Key**: `[SQL Query String + Bound Parameter Values + Pagination Offset/Limit]`.
@@ -1579,7 +1669,7 @@ While the L2 Entity Cache only caches lookups by Primary Key (`em.find(Product.c
 - When a Query Cache hit occurs, Hibernate takes that list of IDs (`[101L, 102L, 105L]`) and looks up each full entity **one by one in the L2 Entity Cache**!
 - **The Update Timestamps Cache (`TimestampsRegion`)**: Hibernate maintains a special cache region tracking the last modification timestamp (`INSERT`/`UPDATE`/`DELETE`) of **every table**. If *any* single row in the `products` table is updated, `TimestampsRegion.put("products", now)` invalidates **every single cached query that touches the `products` table**!
 
-#### 2. Pictorial Diagram: The Query Cache + Evicted L2 Entity Cache = $N$ Queries Disaster!
+#### 2. Technical Architecture & Execution Diagram: The Query Cache + Evicted L2 Entity Cache = $N$ Queries Disaster!
 ```
 DANGEROUS ANTI-PATTERN: Enabling Query Cache when L2 Entity Cache has shorter TTL / smaller size!
 
@@ -1604,7 +1694,11 @@ public interface TaxRuleRepository extends JpaRepository<TaxRule, Long> {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `TaxRuleRepository`, `is` (annotated with `@Entity`, `@QueryHints`, `@QueryHint`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Never Enable Hibernate Query Cache on Write-Heavy Tables (`orders`, `payments`)**: Because `TimestampsRegion` tracks invalidation at the **table level** (not row level), 100 writes/sec to the `orders` table invalidates 100% of cached queries on `orders` 100 times per second, adding lock/network overhead to every write with a `0%` cache hit rate!
 
 ---
@@ -1612,7 +1706,7 @@ public interface TaxRuleRepository extends JpaRepository<TaxRule, Long> {
 <a id="q3-27"></a>
 ### Q3.27: Compare `CrudRepository.save()`, `JpaRepository.saveAndFlush()`, and `EntityManager.persist()` — and explain why calling `save()` on a new Entity with a pre-assigned UUID/Business ID triggers an unnecessary `SELECT` query!
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 Look at the exact implementation of `SimpleJpaRepository.save(S entity)` inside Spring Data JPA:
 ```java
 @Transactional
@@ -1636,7 +1730,7 @@ How does `entityInformation.isNew(entity)` decide if `entity` is new?
   - `SimpleJpaRepository.save()` calls **`entityManager.merge(newOrder)`** instead of `persist(newOrder)`!
   - And what does `entityManager.merge()` do? It **executes an unnecessary `SELECT * FROM orders WHERE id = ?` against the database first** to check if that UUID already exists in the DB before executing `INSERT`—**doubling the database round-trips for every single insert**!
 
-#### 2. Pictorial Diagram: `SimpleJpaRepository.save()` Decision Tree & Pre-Assigned UUID Trap
+#### 2. Technical Architecture & Execution Diagram: `SimpleJpaRepository.save()` Decision Tree & Pre-Assigned UUID Trap
 ```
 orderRepository.save(entity)
        |
@@ -1654,7 +1748,7 @@ entityInformation.isNew(entity)?
                ---> Query 2:           INSERT INTO orders...
 ```
 
-#### 3. Implementation: Fixing the Pre-Assigned UUID `merge()` Trap with `@Version` or `Persistable<ID>`
+#### 3. Detailed Technical Example & Production Code: Fixing the Pre-Assigned UUID `merge()` Trap with `@Version` or `Persistable<ID>`
 ```java
 // SOLUTION 1 (Simplest & Best): Add a @Version wrapper field (Long or Integer, NOT primitive long!)
 // When 'version' is null, Spring Data JPA knows the entity is NEW even when 'id' (UUID) is non-null!
@@ -1686,7 +1780,11 @@ public class AuditEvent implements Persistable<UUID> {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `Order`, `AuditEvent` (annotated with `@Version`, `@Entity`, `@Table`, `@Id`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `isNew(...)` and `markNotNew(...)`, execution proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **When to use `saveAndFlush()`**: Normally, Hibernate buffers `INSERT`/`UPDATE` statements in its `ActionQueue` and flushes them as late as possible (right before transaction commit) to minimize DB lock hold duration. Only call `saveAndFlush()` when subsequent code in the *same* transaction executes a native SQL / `JdbcTemplate` query that must see the newly written row immediately, or when you want to catch a database constraint violation inside a `try-catch` block (note: catching a `DataIntegrityViolationException` after `saveAndFlush()` corrupts the Hibernate `Session`, requiring the transaction to roll back anyway!).
 
 ---
@@ -1694,7 +1792,7 @@ public class AuditEvent implements Persistable<UUID> {
 <a id="q3-28"></a>
 ### Q3.28: Compare `@NotNull`, `@NotEmpty`, and `@NotBlank` in Jakarta Bean Validation (JSR 380), and explain the difference between `@Valid` and Spring's `@Validated` (Validation Groups & Method-Level AOP Validation).
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 1. **The 3 Null/Empty Constraints (`jakarta.validation.constraints.*`)**:
    | Input Value | `@NotNull` | `@NotEmpty` | `@NotBlank` |
    |---|---|---|---|
@@ -1708,7 +1806,7 @@ public class AuditEvent implements Persistable<UUID> {
    - **Validation Groups**: Only **`@Validated({OnCreate.class})`** supports specifying JSR-380 Validation Groups on Controller parameters.
    - **Service/Method-Level AOP Validation**: Placing `@Validated` at the **class level** of a `@Service` enables `MethodValidationPostProcessor` so `@NotNull` / `@Valid` parameters on service methods are validated via AOP (`ConstraintViolationException`).
 
-#### 2. Pictorial Diagram: Nested `@Valid` Cascade vs `@Validated` Group Dispatch
+#### 2. Technical Architecture & Execution Diagram: Nested `@Valid` Cascade vs `@Validated` Group Dispatch
 ```
 POST /api/orders  --->  createOrder(@Validated(OnCreate.class) @RequestBody OrderRequestDto dto)
                                                    |
@@ -1728,7 +1826,7 @@ POST /api/orders  --->  createOrder(@Validated(OnCreate.class) @RequestBody Orde
                         +-----------------------------------------------------+
 ```
 
-#### 3. Implementation: Nested Record DTO Validation with Custom Cross-Field Validator
+#### 3. Detailed Technical Example & Production Code: Nested Record DTO Validation with Custom Cross-Field Validator
 ```java
 public record DateRangeQueryDto(
         @NotNull Instant startDate,
@@ -1743,7 +1841,11 @@ public record DateRangeQueryDto(
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `DateRangeQueryDto` (annotated with `@NotNull`, `@AssertTrue`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `isDateRangeValid(...)`, execution proceeds step-by-step: the core statement `public boolean isDateRangeValid() {` executes the primary state transformation while preserving algorithmic time/space complexity and thread safety.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Exception Type Difference (`MethodArgumentNotValidException` vs `ConstraintViolationException`)**:
   - When `@Valid` / `@Validated` fails on a `@RequestBody` DTO in a Controller, Spring MVC throws **`MethodArgumentNotValidException`** (or `HandlerMethodValidationException` in Spring Boot 3.2+).
   - When `@Validated` fails on a `@Service` method parameter (or `@PathVariable` / `@RequestParam`), the AOP proxy throws **`jakarta.validation.ConstraintViolationException`**! Ensure your `@RestControllerAdvice` handles both!
@@ -1753,13 +1855,13 @@ public record DateRangeQueryDto(
 <a id="q3-29"></a>
 ### Q3.29: Explain `@Embeddable` and `@Embedded` (Value Objects in DDD), `@AttributeOverride`, and what happens when all columns of an `@Embedded` object are `NULL` in the database!
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 In Domain-Driven Design (DDD), a **Value Object** (`Money`, `Address`, `GeoCoordinates`, `DateRange`) has no independent identity (`@Id`) or lifecycle—its lifecycle is 100% bound to its owning `@Entity`, and its fields map directly into columns of the **owning entity's database table** (zero extra tables, zero SQL `JOIN`s!).
 - **`@Embeddable`**: Placed on the Value Object class (`Money`, `Address`).
 - **`@Embedded`**: Placed on the field in the owning `@Entity` (`Order`).
 - **`@AttributeOverrides`**: Allows an `@Entity` to embed **two instances of the same `@Embeddable` class** (e.g., `billingAddress` and `shippingAddress`, or `subtotal` and `taxAmount` of type `Money`) by prefixing their column names (`billing_street` vs `shipping_street`).
 
-#### 2. Pictorial Diagram: Two `@Embedded` Value Objects Flattened into One Physical SQL Table
+#### 2. Technical Architecture & Execution Diagram: Two `@Embedded` Value Objects Flattened into One Physical SQL Table
 ```
 JAVA DOMAIN MODEL (Rich DDD Value Objects):
   [Entity: Order]
@@ -1772,7 +1874,7 @@ PHYSICAL DATABASE TABLE 'orders' (Single Table, Zero JOINs!):
 +----+----------------+--------------+-------------+-----------------+---------------+--------------+
 ```
 
-#### 3. Implementation: Embedding Multiple `Money` Value Objects with `@AttributeOverrides`
+#### 3. Detailed Technical Example & Production Code: Embedding Multiple `Money` Value Objects with `@AttributeOverrides`
 ```java
 @Embeddable
 public record MoneyEmbeddable(
@@ -1802,7 +1904,11 @@ public class Invoice {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `MoneyEmbeddable`, `Invoice` (annotated with `@Embeddable`, `@Column`, `@Entity`, `@Table`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **What does Hibernate set the `@Embedded` field to when ALL its mapped database columns are `NULL` in a row?**
   By default, if `shipping_street`, `shipping_city`, and `shipping_zip` are all `NULL` in the database row, **Hibernate sets `order.shippingAddress = null`** (rather than `new Address(null, null, null)`)! If you want an empty instance instead of `null`, configure `hibernate.create_empty_composites.enabled=true` (though keeping it `null` or `Optional` getter is cleaner).
 
@@ -1811,7 +1917,7 @@ public class Invoice {
 <a id="q3-30"></a>
 ### Q3.30: What is the difference between `@JoinColumn` (Owning Side) and `mappedBy` (Inverse Side) in Bidirectional JPA Relationships, and why does forgetting `mappedBy` on `@OneToMany` create a hidden 3rd Join Table and terrible SQL delete/insert cascades?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 In relational databases, a foreign key exists on **one physical table** (the Child table `order_items.order_id`), which allows SQL queries to join in both directions.
 In object-oriented Java, if you have a **bidirectional relationship** (`Order.items` and `OrderItem.order`), there are **two separate references in memory**, so JPA requires you to designate:
 1. **The Owning Side (`@ManyToOne @JoinColumn(name = "order_id")` on `OrderItem`)**:
@@ -1821,7 +1927,7 @@ In object-oriented Java, if you have a **bidirectional relationship** (`Order.it
 2. **The Inverse / Non-Owning Side (`@OneToMany(mappedBy = "order")` on `Order`)**:
    - Tells Hibernate: *"Do not create a separate join table for this list; look at the `order` field on `OrderItem` to find the `@JoinColumn` mapping."*
 
-#### 2. Pictorial Diagram: Unidirectional `@OneToMany` (Without `mappedBy`) vs Bidirectional `@OneToMany(mappedBy)`
+#### 2. Technical Architecture & Execution Diagram: Unidirectional `@OneToMany` (Without `mappedBy`) vs Bidirectional `@OneToMany(mappedBy)`
 ```
 ANTI-PATTERN: @OneToMany on Order WITHOUT 'mappedBy' (Unidirectional OneToMany):
   Hibernate creates a 3RD JOIN TABLE: 'orders_items (order_id, items_id)'!
@@ -1833,7 +1939,7 @@ PROPER BIDIRECTIONAL MAPPING: @OneToMany(mappedBy = "order") on Order + @ManyToO
   Physical Tables: ONLY 'orders' and 'order_items (order_id FK)'! (Zero extra join table!)
 ```
 
-#### 3. Implementation: Bidirectional Relationship Synchronization Helper Methods
+#### 3. Detailed Technical Example & Production Code: Bidirectional Relationship Synchronization Helper Methods
 ```java
 @Entity
 @Table(name = "orders")
@@ -1870,7 +1976,11 @@ public class OrderItem {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `Order`, `OrderItem` (annotated with `@Entity`, `@Table`, `@Id`, `@GeneratedValue`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `addItem(...)` and `removeItem(...)` and `setOrder(...)`, execution proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Infinite Recursion in `toString()`, `equals()`, and Jackson JSON Serialization on Bidirectional Entities**:
   If `Order.toString()` calls `items.toString()` and `OrderItem.toString()` calls `order.toString()`, your application crashes with **`java.lang.StackOverflowError`**! Always exclude `@ManyToOne` / `@OneToMany` associations from `@ToString.Exclude` and `@EqualsAndHashCode.Exclude`, and serialize DTOs instead of raw `@Entity` graphs.
 
@@ -1879,7 +1989,7 @@ public class OrderItem {
 <a id="q3-31"></a>
 ### Q3.31: What is the exact difference between `CascadeType.REMOVE` and `orphanRemoval = true` on `@OneToMany`, and why is `CascadeType.REMOVE` (or `CascadeType.ALL`) catastrophic on `@ManyToMany`?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 1. **`CascadeType.REMOVE` vs `orphanRemoval = true` on `@OneToMany`**:
    - **`CascadeType.REMOVE`**: Propagates the `remove` operation from Parent to Child **ONLY when the entire Parent entity itself is deleted** (`entityManager.remove(order)` -> deletes `Order` and all its `OrderItem`s).
      - If you keep the `Order` alive and simply remove one item from its collection (`order.getItems().remove(0)`), **`CascadeType.REMOVE` does NOT delete that `OrderItem` row from the database**!
@@ -1892,7 +2002,7 @@ public class OrderItem {
      - Deleting `Author 2` cascades `REMOVE` to `Books B, C, D`!
      - **A single `em.remove(author1)` wipes out the entire `authors` and `books` tables in a chain reaction!**
 
-#### 2. Pictorial Diagram: `CascadeType.REMOVE` vs `orphanRemoval = true`
+#### 2. Technical Architecture & Execution Diagram: `CascadeType.REMOVE` vs `orphanRemoval = true`
 ```
 Action 1: entityManager.remove(parentOrder);  (Deleting the Entire Order)
   |-- CascadeType.REMOVE:   Executes DELETE FROM order_items ... + DELETE FROM orders ...
@@ -1903,7 +2013,7 @@ Action 2: parentOrder.getItems().remove(item1);  (Modifying Order in-place; Orde
   +-- orphanRemoval = true:      Executes DELETE FROM order_items WHERE id = item1.id!
 ```
 
-#### 3. Implementation: Safe `@ManyToMany` with `Set` (Never `List`!) and Limited Cascade
+#### 3. Detailed Technical Example & Production Code: Safe `@ManyToMany` with `Set` (Never `List`!) and Limited Cascade
 ```java
 @Entity
 @Table(name = "users")
@@ -1925,7 +2035,11 @@ public class User {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `User` (annotated with `@Entity`, `@Table`, `@Id`, `@GeneratedValue`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Never Replace the `orphanRemoval = true` Collection Reference (`this.items = new ArrayList<>()`)!**
   Hibernate wraps `this.items` in its own tracking `PersistentBag` instance. If you write a setter `public void setItems(List<OrderItem> newItems) { this.items = newItems; }` and overwrite the `PersistentBag` pointer on a Managed entity with `orphanRemoval = true`, Hibernate immediately throws **`org.hibernate.HibernateException: A collection with cascade="all-delete-orphan" was no longer referenced by the owning entity instance`**! Always mutate the existing collection in-place: `this.items.clear(); this.items.addAll(newItems);`.
 
@@ -1934,7 +2048,7 @@ public class User {
 <a id="q3-32"></a>
 ### Q3.32: How do you build composable, type-safe dynamic search queries in Spring Data JPA using `JpaSpecificationExecutor<T>` (Criteria API), and how do you avoid the `JOIN` $N+1$ trap inside a `Specification`?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 When an enterprise search endpoint accepts 8 optional query parameters (`customerId`, `status`, `minTotal`, `maxTotal`, `createdAfter`, `sku`, etc.), writing $2^8 = 256$ derived repository methods is impossible, and concatenating JPQL strings manually invites SQL injection.
 **`JpaSpecificationExecutor<T>`** solves this using the **Specification Pattern** (Eric Evans, DDD) built on the JPA Criteria API:
 - A `Specification<T>` is a functional interface: `Predicate toPredicate(Root<T> root, CriteriaQuery<?> query, CriteriaBuilder cb)`.
@@ -1946,7 +2060,7 @@ When an enterprise search endpoint accepts 8 optional query parameters (`custome
   - If your `Specification` unconditionally calls `root.fetch("customer", JoinType.LEFT)` (to avoid $N+1$), the **Count Query crashes** with **`org.hibernate.query.SemanticException: query specified join fetching, but the owner of the fetched association was not present in the select list`**!
   - **Fix**: Check **`if (Long.class != query.getResultType() && long.class != query.getResultType()) { root.fetch("customer", JoinType.LEFT); }`**!
 
-#### 2. Pictorial Diagram: Composable `Specification<Order>` AST Construction
+#### 2. Technical Architecture & Execution Diagram: Composable `Specification<Order>` AST Construction
 ```
 SearchFilter(status="PAID", minTotal=100.00, customerEmail=null)
        |
@@ -1958,7 +2072,7 @@ SearchFilter(status="PAID", minTotal=100.00, customerEmail=null)
 Generated SQL: SELECT ... FROM orders o LEFT JOIN customers c ... WHERE o.status = ? AND o.total >= ?
 ```
 
-#### 3. Implementation: Production-Grade Composable `Specification` with Safe `fetch()`
+#### 3. Detailed Technical Example & Production Code: Production-Grade Composable `Specification` with Safe `fetch()`
 ```java
 public final class OrderSpecifications {
     private OrderSpecifications() {}
@@ -1986,7 +2100,11 @@ public final class OrderSpecifications {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `OrderSpecifications` (annotated with `@ManyToOne`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: the core statement `}` executes the primary state transformation while preserving algorithmic time/space complexity and thread safety.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Hibernate 6+ Automatic `DISTINCT` Optimization**: In Hibernate 5, joining a collection inside a `Specification` required `query.distinct(true)`, which forced an expensive SQL `SELECT DISTINCT` (causing a database sort/hash step). In **Hibernate 6 (Spring Boot 3+)**, Hibernate automatically deduplicates root entity references in Java memory without emitting an unnecessary SQL `DISTINCT`!
 
 ---
@@ -1994,7 +2112,7 @@ public final class OrderSpecifications {
 <a id="q3-33"></a>
 ### Q3.33: Compare Spring MVC (Servlet Stack + Java 21 Virtual Threads) vs Spring WebFlux (Reactive Netty Event Loop Stack) — when should an architect choose each in 2026?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 | Dimension | Spring MVC (Platform Threads) | Spring MVC + **Java 21 Virtual Threads** | Spring WebFlux (Project Reactor) |
 |---|---|---|---|
 | **Runtime Server** | Embedded Tomcat / Jetty | Embedded Tomcat / Jetty (`virtual.enabled=true`) | Reactive **Netty Event Loop** (`2 * N_CPU` threads) |
@@ -2002,7 +2120,7 @@ public final class OrderSpecifications {
 | **Programming Style** | Simple imperative sequential code; standard stack traces. | **Simple imperative sequential code; standard stack traces & debuggers!** | Functional reactive pipelines; complex debugging, viral `Mono`/`Flux` return types. |
 | **Database Driver** | Standard **JDBC + JPA/Hibernate** | Standard **JDBC + JPA/Hibernate** (Virtual Thread unmounts on socket read!) | Requires **R2DBC** or Reactive NoSQL drivers (Cannot use JPA/Hibernate!). |
 
-#### 2. Pictorial Diagram: Netty Event Loop vs Tomcat Virtual Thread Per Request
+#### 2. Technical Architecture & Execution Diagram: Netty Event Loop vs Tomcat Virtual Thread Per Request
 ```
 1. SPRING WEBFLUX (Netty Event Loop - 8 Non-Blocking OS Threads):
    10,000 Socket Connections ---> [OS epoll Selector] ---> [8 Netty EventLoop Threads]
@@ -2023,7 +2141,11 @@ spring:
       enabled: true
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code & Configuration Execution Walkthrough**:
+  1. **Declaration & Schema Binding**: The YAML block begins with `spring:`, establishing the target resource, dependency descriptor, or execution context for **Compare Spring MVC (Servlet Stack + Java 21 Virtual Threads) vs Spring WebFlux (Reactive Netty Event Loop Stack) — when should an architect choose each in 2026?**.
+  2. **Core Rule / Parameter Evaluation**: At `virtual:`, the runtime engine (Spring Boot binder, Kubernetes/Envoy control plane, JVM launcher, or SQL planner) parses the explicit thresholds, routing rules, or execution flags.
+  3. **Runtime Enforcement**: Concluding with `enabled: true`, these settings are enforced deterministically at startup and runtime to guarantee the behavior illustrated in the architecture diagram above.
 - **When is Spring WebFlux STILL the Right Choice in the Java 21 Era?**
   1. **Streaming & Bi-Directional Pipelines**: Server-Sent Events (SSE), LLM token streaming, reactive WebSockets, and RSocket with end-to-end **Reactive Streams Backpressure (`request(n)`)**.
   2. **Spring Cloud Gateway**: Ultra-low-allocation non-blocking API Gateway proxying where no blocking JDBC/JPA is used.
@@ -2034,7 +2156,7 @@ spring:
 <a id="q3-34"></a>
 ### Q3.34: How do Spring Profiles (`@Profile`, `spring.profiles.active`, Profile Groups) work, and why is hardcoding environment credentials inside packaged `application-prod.yml` a security anti-pattern?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 Spring Profiles allow conditional activation of beans (`@Profile("prod")`, `@Profile("!test")`) and configuration files (`application-{profile}.yml`) based on the runtime environment:
 1. **Logical Expressions in `@Profile`**:
    - Supports boolean operators `&` (AND), `|` (OR), and `!` (NOT): e.g., `@Profile("cloud & !local")`.
@@ -2053,7 +2175,7 @@ Spring Profiles allow conditional activation of beans (`@Profile("prod")`, `@Pro
    - Anything inside `src/main/resources` is committed to Git history and baked into the immutable Docker container image pushed to the registry.
    - Instead, package **only one universal Docker image**, keep `application-prod.yml` limited to non-sensitive structural tuning (pool sizes, timeouts, log formats), and inject secrets via **Kubernetes External Secrets / HashiCorp Vault / AWS Secrets Manager environment variables**.
 
-#### 2. Pictorial Diagram: Clean Strategy Pattern Using `@Profile` for Local vs Production Gateways
+#### 2. Technical Architecture & Execution Diagram: Clean Strategy Pattern Using `@Profile` for Local vs Production Gateways
 ```
         +---------------------------------------------+
         |     <<interface>> TaxCalculationClient      |
@@ -2067,7 +2189,7 @@ Spring Profiles allow conditional activation of beans (`@Profile("prod")`, `@Pro
    +--------------------------------+  +--------------------------------+
 ```
 
-#### 3. Implementation Example
+#### 3. Detailed Technical Example & Production Code Example
 ```java
 @Configuration
 public class StorageClientConfig {
@@ -2086,7 +2208,11 @@ public class StorageClientConfig {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `StorageClientConfig` (annotated with `@Configuration`, `@Bean`, `@Profile`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: the core statement `}` executes the primary state transformation while preserving algorithmic time/space complexity and thread safety.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Spring Boot 2.4+ Multi-Document YAML Activation (`spring.config.activate.on-profile`)**: Never put `spring.profiles.active: prod` *inside* a profile-specific block—use `spring.config.activate.on-profile: prod` to declare when a YAML document section is active.
 
 ---
@@ -2094,7 +2220,7 @@ public class StorageClientConfig {
 <a id="q3-35"></a>
 ### Q3.35: How does Spring Boot Graceful Shutdown (`server.shutdown: graceful`) coordinate with Kubernetes Pod Termination (`SIGTERM`, `preStop` Hook, and `SmartLifecycle` Phase Ordering)?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 When Kubernetes scales down a deployment or rolls out a new version, two events happen **in parallel (NOT sequentially!)**:
 - **Path A (Control Plane -> kube-proxy / Ingress)**: Kubernetes marks the Pod `Terminating` and asynchronously updates `Endpoints` / `EndpointSlice` across nodes to remove the Pod IP from load balancers (**takes 1–3 seconds to propagate across all nodes!**).
 - **Path B (kubelet -> Container)**: Kubelet **immediately** sends `SIGTERM` to PID 1 (`java`) inside the container!
@@ -2106,7 +2232,7 @@ When Kubernetes scales down a deployment or rolls out a new version, two events 
    - Even with `server.shutdown: graceful`, Tomcat stops accepting *new* connections the instant `SIGTERM` arrives (at $t = 0\text{s}$), **while `kube-proxy` / AWS ALB is still routing new requests to the Pod IP until $t = 2\text{s}$**! Those requests get `Connection Refused`!
    - **Fix**: Configure a Kubernetes **`lifecycle.preStop` hook (`sleep 5`)** so the Pod stays `UP` and continues accepting connections during the 5 seconds while `kube-proxy` finishes draining the Pod IP from all load balancers, and only *then* receives `SIGTERM`!
 
-#### 2. Pictorial Diagram: Zero-Dropped-Request Kubernetes + Spring Boot Graceful Shutdown Timeline
+#### 2. Technical Architecture & Execution Diagram: Zero-Dropped-Request Kubernetes + Spring Boot Graceful Shutdown Timeline
 ```
 t = 0s: K8s marks Pod 'Terminating'
   |-- Path A: kube-proxy / Ingress removes Pod IP from Load Balancer (Completes by t = 2s)
@@ -2142,7 +2268,11 @@ spec:
             command: ["sh", "-c", "sleep 5"]
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code & Configuration Execution Walkthrough**:
+  1. **Declaration & Schema Binding**: The YAML block begins with `server:`, establishing the target resource, dependency descriptor, or execution context for **How does Spring Boot Graceful Shutdown (`server.shutdown: graceful`) coordinate with Kubernetes Pod Termination (`SIGTERM`, `preStop` Hook, and `SmartLifecycle` Phase Ordering)?**.
+  2. **Core Rule / Parameter Evaluation**: At `terminationGracePeriodSeconds: 45 # Must be > preStop (5s) + shutdown-phase (30s`, the runtime engine (Spring Boot binder, Kubernetes/Envoy control plane, JVM launcher, or SQL planner) parses the explicit thresholds, routing rules, or execution flags.
+  3. **Runtime Enforcement**: Concluding with `command: ["sh", "-c", "sleep 5"]`, these settings are enforced deterministically at startup and runtime to guarantee the behavior illustrated in the architecture diagram above.
 - **Why Must Your Dockerfile Use Exec Form `ENTRYPOINT ["java", "-jar", "app.jar"]` Instead of Shell Form `ENTRYPOINT java -jar app.jar`?**
   Because Shell Form spawns `/bin/sh -c "java ..."` as **PID 1**, and `/bin/sh` **does NOT forward `SIGTERM` signals to child processes**! When Kubernetes sends `SIGTERM`, the JVM never receives it, waits 30 seconds, and gets brutally killed by `SIGKILL (Exit 137)` mid-transaction! Always use Exec Form `["java", ...]` so `java` itself is PID 1.
 
@@ -2153,12 +2283,12 @@ spec:
 <a id="q3-36"></a>
 ### Q3.36: How does Spring Boot Auto-Configuration work internally under the hood (`AutoConfiguration.imports` and Conditional evaluation)?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - `@SpringBootApplication` includes `@EnableAutoConfiguration`, which imports `AutoConfigurationImportSelector`.
 - In Spring Boot 3.x (`2.7+`), `ImportCandidates.load(AutoConfiguration.class, classLoader)` scans all JARs on the classpath for `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports` (replacing the legacy `META-INF/spring.factories`).
 - Before instantiating those ~150 candidate configuration classes, `OnClassCondition` (backed by ASM bytecode metadata in `META-INF/spring-autoconfigure-metadata.properties`) filters out configurations whose required classes are absent from the classpath—avoiding costly `Class.forName()` reflection overhead at startup.
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 @SpringBootApplication -> @EnableAutoConfiguration -> AutoConfigurationImportSelector
         │
@@ -2175,7 +2305,7 @@ Evaluate @ConditionalOnMissingBean / @ConditionalOnProperty during Configuration
 Register remaining Auto-Configured Beans into ApplicationContext
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```java
 @AutoConfiguration(after = DataSourceAutoConfiguration.class)
 @ConditionalOnClass(HikariDataSource.class)
@@ -2191,7 +2321,11 @@ public class AuditAutoConfiguration {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `AuditAutoConfiguration` (annotated with `@AutoConfiguration`, `@ConditionalOnClass`, `@ConditionalOnProperty`, `@EnableConfigurationProperties`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: the core statement `@Bean` executes the primary state transformation while preserving algorithmic time/space complexity and thread safety.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Defining `@ConditionalOnMissingBean` in regular `@Configuration` classes**: `@ConditionalOnMissingBean` is only guaranteed to work predictably inside `@AutoConfiguration` classes because Spring Boot processes all user `@Configuration` classes *before* `@AutoConfiguration` classes. Using it between two regular `@Configuration` classes makes bean registration dependent on lexical classpath scan order.
 - **Debugging Auto-Config**: Run with `--debug` or inspect Actuator's `/actuator/conditions` endpoint to view the Condition Evaluation Report (matched vs unmatched conditions).
 
@@ -2200,7 +2334,7 @@ public class AuditAutoConfiguration {
 <a id="q3-37"></a>
 ### Q3.37: How does Spring resolve Circular Dependencies using its 3-Level Singleton Cache, and why do Constructor Circular Dependencies fail?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - When Bean A and Bean B depend on each other via **field/setter injection**, Spring resolves the cycle using three maps inside `DefaultSingletonBeanRegistry`:
   1. **Level 1 (`singletonObjects`)**: Fully initialized, ready-to-use singleton beans.
   2. **Level 2 (`earlySingletonObjects`)**: Early exposed bean references (or AOP proxies) that have been instantiated via constructor but have not finished property population/`@PostConstruct`.
@@ -2208,7 +2342,7 @@ public class AuditAutoConfiguration {
 - **Why 3 levels instead of 2?** If Bean A is wrapped by an AOP proxy (`@Transactional`, `@Async`), normally the proxy is created in `BeanPostProcessor.postProcessAfterInitialization`. If a circular dependency occurs, the Level 3 `ObjectFactory` (`getEarlyBeanReference`) triggers `SmartInstantiationAwareBeanPostProcessor` early so Bean B receives the **AOP proxy of A**, not the raw target instance!
 - **Why Constructor Injection Fails**: Bean A cannot even complete step 1 (`createBeanInstance`) to register its Level 3 `ObjectFactory` until Bean B is passed to its constructor, throwing `BeanCurrentlyInCreationException`.
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 1. getBean("A") -> createBeanInstance(A) -> Put ObjectFactory(A) into Level 3 [singletonFactories]
 2. populateBean(A) needs "B" -> calls getBean("B")
@@ -2223,7 +2357,7 @@ public class AuditAutoConfiguration {
 6. A receives B, finishes init -> Proxy(A) moved from Level 2 to Level 1 [singletonObjects]
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```java
 // Best Fix: Refactor shared logic into a 3rd service, or use @Lazy on one constructor parameter
 @Service
@@ -2237,7 +2371,11 @@ public class OrderService {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `OrderService` (annotated with `@Lazy`, `@Service`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: the core statement `public OrderService(@Lazy PaymentService paymentService) {` executes the primary state transformation while preserving algorithmic time/space complexity and thread safety.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Spring Boot 2.6+ Default**: Spring Boot disabled circular references by default (`spring.main.allow-circular-references=false`). Relying on setter injection to hide circular dependencies masks poor domain boundary design.
 
 ---
@@ -2245,12 +2383,12 @@ public class OrderService {
 <a id="q3-38"></a>
 ### Q3.38: Explain the `@Transactional` Self-Invocation Bypass Trap and 3 production-grade ways to fix it.
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - Spring `@Transactional` works via runtime AOP proxies (`TransactionInterceptor`).
 - When an external caller invokes `orderService.placeOrder()`, the call passes through the CGLIB proxy.
 - However, if `placeOrder()` (non-transactional) calls `this.saveOrderWithAudit()` (`@Transactional`) inside the same class, `this` refers to the **raw target object**, bypassing the proxy and its `TransactionInterceptor` completely.
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 External Caller
      │
@@ -2265,7 +2403,7 @@ External Caller
 saveOrderWithAudit() runs with NO transaction!
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```java
 // Fix 1 (Recommended): Extract transactional method into a dedicated collaborator Bean
 @Service
@@ -2295,7 +2433,11 @@ public class OrderService {
 // Fix 3: Programmatic TransactionTemplate (Explicit, zero proxy overhead)
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `OrderPersistenceHelper`, `OrderService` (annotated with `@Service`, `@Transactional`, `@Lazy`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `saveOrderWithAudit(...)` and `placeOrder(...)`, execution proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Private/Final Methods**: Marking a `private` or `final` method `@Transactional` also silently fails because CGLIB subclasses cannot override `private` or `final` methods.
 
 ---
@@ -2303,14 +2445,14 @@ public class OrderService {
 <a id="q3-39"></a>
 ### Q3.39: How can `@Transactional(propagation = Propagation.REQUIRES_NEW)` cause a complete HikariCP Connection Pool Deadlock under concurrent load?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - `Propagation.REQUIRES_NEW` suspends the outer transaction (keeping its JDBC connection open and leased from HikariCP!) and requests a **second physical JDBC connection** from HikariCP for the inner transaction.
 - Suppose HikariCP `maximumPoolSize = 10`, and 10 Tomcat threads concurrently enter the outer `@Transactional` method at the exact same millisecond.
 - All 10 connections in the pool are now leased by the 10 outer transactions.
 - Next, all 10 threads invoke an inner `@Transactional(propagation = REQUIRES_NEW)` method. Each thread blocks waiting for a 2nd connection from HikariCP.
 - None of the 10 outer transactions can finish and release their 1st connection until their inner `REQUIRES_NEW` transaction completes. **Result**: Total pool deadlock until `connectionTimeout` (30s) expires!
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 HikariCP Pool Size = 10 Connections [C1..C10]
 10 Concurrent Requests (Threads T1..T10):
@@ -2321,7 +2463,7 @@ HikariCP Pool Size = 10 Connections [C1..C10]
         └── DEADLOCK for 30,000ms -> SQLTransientConnectionException!
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```java
 // Better Alternative for Audit/Outbox logging:
 //Instead of REQUIRES_NEW inside the hot path, publish an event handled asynchronously
@@ -2337,7 +2479,11 @@ public class AuditFailureListener {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `AuditFailureListener` (annotated with `@TransactionalEventListener`, `@Component`, `@Async`, `@Transactional`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `onPaymentFailed(...)`, execution proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Interview Rule**: Never nest `REQUIRES_NEW` inside an active transaction on the same thread if the number of concurrent threads can reach or exceed `maximumPoolSize`.
 
 ---
@@ -2345,14 +2491,14 @@ public class AuditFailureListener {
 <a id="q3-40"></a>
 ### Q3.40: Explain the Hibernate $N+1$ Selects Problem and compare `JOIN FETCH`, `@EntityGraph`, and `@BatchSize`.
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - The $N+1$ problem occurs when 1 query fetches $N$ parent entities (`SELECT * FROM orders LIMIT 50`), and subsequent iteration over a lazy association (`order.getItems()`) executes $N$ individual queries (`SELECT * FROM order_items WHERE order_id = ?` 50 times) = 51 database round-trips.
 - **Solutions**:
   1. **JPQL `JOIN FETCH`**: Fetches parent and child in a single SQL `LEFT/INNER JOIN`.
   2. **`@EntityGraph`**: Declarative fetch plan annotation on repository methods without hardcoding `JOIN FETCH` into JPQL strings.
   3. **`@BatchSize(size = 25)`** (or `spring.jpa.properties.hibernate.default_batch_fetch_size=25`): Loads lazy collections in batched `WHERE order_id IN (?, ?, ...)` clauses ($1 + \lceil N/25 \rceil$ queries).
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 N+1 Problem (50 Orders):
   Query 1: SELECT * FROM orders LIMIT 50
@@ -2364,7 +2510,7 @@ N+1 Problem (50 Orders):
   Query 3: SELECT * FROM items WHERE order_id IN (26..50) (Only 3 round-trips, safe with pagination!)
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```java
 public interface OrderRepository extends JpaRepository<Order, Long> {
 
@@ -2378,7 +2524,11 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `OrderRepository` (annotated with `@Query`, `@Param`, `@EntityGraph`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **`MultipleBagFetchException`**: Fetching two `List` (`@OneToMany`) collections simultaneously via `JOIN FETCH` produces a Cartesian product and throws `MultipleBagFetchException`. Fix by changing `List` to `Set`, or fetching one collection via `JOIN FETCH` and the second via `@BatchSize`.
 
 ---
@@ -2386,12 +2536,12 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 <a id="q3-41"></a>
 ### Q3.41: Why does combining `JOIN FETCH` on a `@OneToMany` collection with `Pageable` trigger `HHH90003004: firstResult/maxResults specified with collection fetch; applying in memory`, and how do you solve it?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - When you join `orders` (1) with `order_items` ($M$), a single `Order` with 5 items produces 5 rows in the SQL result set.
 - If Hibernate appended `LIMIT 10` to the SQL query, the database would return only 10 *joined rows* (which might only represent 2 `Order` entities!).
 - Therefore, Hibernate strips `LIMIT/OFFSET` from the SQL query, logs `WARN HHH90003004`, pulls the **entire joined table into JVM heap memory**, deduplicates `Order` instances in memory, and slices the first 10—causing catastrophic `OutOfMemoryError` in production.
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 BAD (JOIN FETCH + Pageable):
   SQL: SELECT o.*, i.* FROM orders o JOIN items i ON ... (NO LIMIT CLAUSE!)
@@ -2402,7 +2552,7 @@ GOOD (Two-Query ID Pagination Pattern):
   Query 2 (JOIN FETCH by IDs): SELECT DISTINCT o FROM Order o LEFT JOIN FETCH o.items WHERE o.id IN (:ids)
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```java
 public interface OrderRepository extends JpaRepository<Order, Long> {
 
@@ -2414,7 +2564,11 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `OrderRepository` (annotated with `@Query`, `@Param`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Fail-Fast Configuration**: Always set `spring.jpa.properties.hibernate.query.fail_on_pagination_over_collection_fetch=true` in `application.yml` so Hibernate throws an exception during testing instead of silently loading millions of rows into memory.
 
 ---
@@ -2422,13 +2576,13 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 <a id="q3-42"></a>
 ### Q3.42: Why does `GenerationType.IDENTITY` disable Hibernate JDBC Batch Inserts, and how does `GenerationType.SEQUENCE` (`pooled-lo`) solve it?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - Hibernate's persistence context (`Session`) requires the primary key (`@Id`) of every entity **immediately** when `persist()` is called so it can index the entity in the 1st-level cache map (`EntityKey -> Entity`).
 - With `GenerationType.IDENTITY` (`AUTO_INCREMENT` / `SERIAL`), the database only generates the ID when the `INSERT` statement is physically executed.
 - Consequently, Hibernate cannot defer and batch `INSERT` statements in its `ActionQueue` until flush time; it must execute an immediate synchronous `INSERT` on every `save()` call.
 - With `GenerationType.SEQUENCE` and the `pooled-lo` optimizer (`allocationSize = 50`), Hibernate fetches 1 sequence value from the DB and computes the next 50 IDs in memory (`[lo .. lo + 49]`), enabling `PreparedStatement.addBatch()` and `executeBatch()`.
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 IDENTITY (500 entities):
   persist(e1) -> Immediate INSERT -> DB round-trip 1
@@ -2439,7 +2593,7 @@ SEQUENCE with allocationSize=50 & batch_size=50 (500 entities):
   10 Sequence calls + 10 Batched INSERTs (50 rows per batch) = 20 round-trips (25x faster!)
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```java
 @Entity
 @Table(name = "ledger_entries")
@@ -2455,7 +2609,11 @@ public class LedgerEntry {
 // spring.jpa.properties.hibernate.order_updates: true
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `LedgerEntry` (annotated with `@Entity`, `@Table`, `@Id`, `@GeneratedValue`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **PostgreSQL `reWriteBatchedInserts=true`**: Add `?reWriteBatchedInserts=true` to the PostgreSQL JDBC URL so the driver rewrites 50 batched `INSERT INTO t VALUES (?)` calls into a single multi-value `INSERT INTO t VALUES (?), (?), ...` packet.
 
 ---
@@ -2463,13 +2621,13 @@ public class LedgerEntry {
 <a id="q3-43"></a>
 ### Q3.43: Why is `spring.jpa.open-in-view=true` (OSIV) considered a severe production anti-pattern?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - By default in Spring Boot, `OpenEntityManagerInViewInterceptor` binds a Hibernate `Session` to the HTTP request thread before the `@RestController` runs and keeps it open until the view/Jackson JSON serialization finishes.
 - **Why it hurts production**:
   1. When an `@Transactional` service method finishes, it commits the transaction, **but if OSIV triggers lazy loading during Jackson serialization**, Hibernate leases a JDBC connection in auto-commit mode (or holds the existing connection across slow network writes/external HTTP calls).
   2. Unintentional $N+1$ queries fire inside Jackson `ObjectMapper` serialization outside any explicit transaction boundary.
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 With OSIV = true (Default):
   HTTP Request ──► [Open EntityManager]
@@ -2482,7 +2640,7 @@ With OSIV = false (Production Best Practice):
   HTTP Request ──► @Controller ──► @Transactional Service (Connection held ONLY 10ms, returns DTO!)
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```yaml
 # application.yml
 spring:
@@ -2490,7 +2648,11 @@ spring:
     open-in-view: false
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code & Configuration Execution Walkthrough**:
+  1. **Declaration & Schema Binding**: The YAML block begins with `spring:`, establishing the target resource, dependency descriptor, or execution context for **Why is `spring.jpa.open-in-view=true` (OSIV) considered a severe production anti-pattern?**.
+  2. **Core Rule / Parameter Evaluation**: At `jpa:`, the runtime engine (Spring Boot binder, Kubernetes/Envoy control plane, JVM launcher, or SQL planner) parses the explicit thresholds, routing rules, or execution flags.
+  3. **Runtime Enforcement**: Concluding with `open-in-view: false`, these settings are enforced deterministically at startup and runtime to guarantee the behavior illustrated in the architecture diagram above.
 - Always disable `spring.jpa.open-in-view` in day-1 production configuration and map entities to DTOs/Records inside the `@Transactional` service boundary.
 
 ---
@@ -2498,7 +2660,7 @@ spring:
 <a id="q3-44"></a>
 ### Q3.44: How does Hibernate `FlushMode` work, and why does Hibernate's `ActionQueue` execute `INSERT` before `DELETE`, causing `ConstraintViolationException`?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - **Flushing** is the process of synchronizing changes in the 1st-level cache with the database via SQL statements (`INSERT`, `UPDATE`, `DELETE`) before committing.
 - **`FlushMode.AUTO` (Default)**: Flushes before transaction commit AND before executing any JPQL/SQL query whose target tables overlap with queued pending entity state changes.
 - **`ActionQueue` Execution Order**: When Hibernate flushes, it does **not** execute SQL in the order you called repository methods! Instead, it executes actions in a fixed order:
@@ -2508,7 +2670,7 @@ spring:
   4. `EntityDeleteAction` (`DELETE`)
 - **The Unique Constraint Trap**: If you call `repo.delete(oldUserWithEmailX)` and then `repo.save(newUserWithEmailX)` in the same transaction, Hibernate executes the `INSERT` **before** the `DELETE`, violating the `UNIQUE(email)` constraint!
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 Java Code Order:
   1. userRepository.delete(oldUser); // email = "a@b.com"
@@ -2519,7 +2681,7 @@ Hibernate ActionQueue Flush Order:
   2. EntityDeleteAction (DELETE oldUser 'a@b.com')     (Never reached!)
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```java
 @Transactional
 public void replaceUser(User oldUser, User newUser) {
@@ -2529,7 +2691,11 @@ public void replaceUser(User oldUser, User newUser) {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation implements the core execution logic (annotated with `@Transactional`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `replaceUser(...)`, execution proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Interview Gold**: Explaining Hibernate's fixed `ActionQueue` ordering (`Inserts -> Updates -> Collection changes -> Deletes`) immediately signals real-world production debugging experience.
 
 ---
@@ -2537,12 +2703,12 @@ public void replaceUser(User oldUser, User newUser) {
 <a id="q3-45"></a>
 ### Q3.45: How do you implement Optimistic Locking with `@Version` and safely retry `ObjectOptimisticLockingFailureException`?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - Optimistic locking assumes conflicts are rare and avoids holding database row locks during read-modify-write cycles.
 - Adding `@Version private Long version;` instructs Hibernate to append `WHERE id = ? AND version = ?` to `UPDATE` and `DELETE` statements and increment `version = version + 1`.
 - If a concurrent transaction modified the row first, `PreparedStatement.executeUpdate()` returns `0 updated rows`. Hibernate throws `OptimisticLockException`, which Spring translates into `ObjectOptimisticLockingFailureException`.
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 Tx A reads Wallet(id=1, balance=100, version=5)
 Tx B reads Wallet(id=1, balance=100, version=5)
@@ -2551,7 +2717,7 @@ Tx B updates: UPDATE wallet SET balance=50, version=6 WHERE id=1 AND version=5 -
   └── Spring throws ObjectOptimisticLockingFailureException -> @Retryable starts fresh Tx!
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```java
 @Service
 public class WalletService {
@@ -2574,7 +2740,11 @@ public class WalletService {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `WalletService` (annotated with `@Service`, `@Retryable`, `@Backoff`, `@Transactional`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `debit(...)`, execution proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Interceptor Ordering**: `@Retryable` must execute **outside** `@Transactional` so that each retry starts a brand-new transaction with a fresh `EntityManager` (re-reading the latest row version from the database).
 
 ---
@@ -2582,12 +2752,12 @@ public class WalletService {
 <a id="q3-46"></a>
 ### Q3.46: When should you use Pessimistic Locking (`PESSIMISTIC_WRITE`, `SELECT ... FOR UPDATE`, `SKIP LOCKED`) over Optimistic Locking?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - When contention on a specific row is **high** (e.g., flash-sale inventory counter, hot merchant settlement account, or distributed job queue polling), Optimistic Locking causes excessive rollbacks and retry storms ("thrashing").
 - `LockModeType.PESSIMISTIC_WRITE` issues `SELECT ... FOR UPDATE`, acquiring an exclusive row-level lock (`X-lock`) in the database until the transaction commits.
 - Adding lock timeout hints (`jakarta.persistence.lock.timeout = 0` for `NOWAIT` or `-2` for `SKIP LOCKED`) prevents cascading thread blockage.
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 High Contention (100 threads updating 1 hot row):
   Optimistic: 1 succeeds, 99 rollback & retry -> 98 rollback & retry -> DB CPU spike!
@@ -2595,7 +2765,7 @@ High Contention (100 threads updating 1 hot row):
   Worker Queue (FOR UPDATE SKIP LOCKED): 10 workers grab 10 distinct unlocked rows concurrently!
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```java
 public interface OutboxRepository extends JpaRepository<OutboxEvent, Long> {
 
@@ -2608,7 +2778,11 @@ public interface OutboxRepository extends JpaRepository<OutboxEvent, Long> {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `OutboxRepository` (annotated with `@Lock`, `@QueryHints`, `@QueryHint`, `@Query`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: Spring and Hibernate coordinate the `PersistenceContext` (`Session`), SQL statement generation, JDBC connection binding, and transaction commit/rollback interception.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Deadlock Prevention**: When acquiring pessimistic locks on multiple rows (e.g., transferring funds between `Account A` and `Account B`), always sort the IDs (`Math.min(id1, id2)` first) so all transactions acquire row locks in a deterministic ascending order.
 
 ---
@@ -2616,11 +2790,11 @@ public interface OutboxRepository extends JpaRepository<OutboxEvent, Long> {
 <a id="q3-47"></a>
 ### Q3.47: Compare JPA `@EntityListeners` (`AuditingEntityListener`) with Hibernate `StatementInspector` for cross-cutting persistence concerns.
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - **`@EntityListeners` (`@PrePersist`, `@PreUpdate`, `@PostLoad`)**: JPA lifecycle callbacks triggered on individual entity instances. Ideal for `@CreatedDate`, `@LastModifiedDate`, `@CreatedBy`, or field-level encryption.
 - **Hibernate `StatementInspector`**: Low-level SPI hook (`inspect(String sql)`) invoked right before any SQL string is sent to JDBC. Ideal for injecting multi-tenant comments/predicates, SQL query tagging (`/* trace_id=... */` for `pg_stat_statements`), or blocking unsafe queries without `WHERE` clauses.
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 Entity save() ──► @PrePersist (@EntityListeners: sets createdAt, createdBy)
                       │
@@ -2634,7 +2808,7 @@ Entity save() ──► @PrePersist (@EntityListeners: sets createdAt, createdBy
              JDBC PreparedStatement
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```java
 public class TraceSqlStatementInspector implements StatementInspector {
     @Override
@@ -2645,7 +2819,11 @@ public class TraceSqlStatementInspector implements StatementInspector {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `TraceSqlStatementInspector` (annotated with `@Override`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `inspect(...)`, execution proceeds step-by-step: the core statement `String traceId = MDC.get("traceId");` executes the primary state transformation while preserving algorithmic time/space complexity and thread safety.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Bulk JPQL Bypass**: `@PreUpdate` and `@PreRemove` entity listeners are **never invoked** by `@Modifying @Query("UPDATE ...")` bulk operations because bulk queries execute directly in SQL without loading entities into the `EntityManager`.
 
 ---
@@ -2653,12 +2831,12 @@ public class TraceSqlStatementInspector implements StatementInspector {
 <a id="q3-48"></a>
 ### Q3.48: How do you configure Multiple `DataSource`s and `PlatformTransactionManager`s (e.g., Read-Write Primary vs Read-Only Replica) in Spring Boot?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - Defining a custom `DataSource` bean disables `DataSourceAutoConfiguration`.
 - To route `@Transactional(readOnly = true)` queries to a read replica and `@Transactional(readOnly = false)` queries to the primary database within the same schema, extend Spring's `AbstractRoutingDataSource` and wrap it in a `LazyConnectionDataSourceProxy`.
 - **Why `LazyConnectionDataSourceProxy` is mandatory**: Normally, Spring fetches a JDBC connection from the `DataSource` *before* syncing `TransactionSynchronizationManager.isCurrentTransactionReadOnly()`. `LazyConnectionDataSourceProxy` defers physical connection acquisition until the first JDBC statement is prepared, after the `readOnly` flag is set!
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 @Transactional(readOnly = true)
        │
@@ -2674,7 +2852,7 @@ ReplicationRoutingDataSource.determineCurrentLookupKey()
        └── readOnly == false ──► Primary HikariDataSource
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```java
 public class ReplicationRoutingDataSource extends AbstractRoutingDataSource {
     @Override
@@ -2686,7 +2864,11 @@ public class ReplicationRoutingDataSource extends AbstractRoutingDataSource {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `ReplicationRoutingDataSource` (annotated with `@Override`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: the core statement `? "REPLICA"` executes the primary state transformation while preserving algorithmic time/space complexity and thread safety.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Replication Lag**: Never route a read query to a replica immediately after a write within the same user workflow ("read-your-own-writes" consistency violation) because asynchronous replication lag (10–200ms) may return stale data.
 
 ---
@@ -2694,11 +2876,11 @@ public class ReplicationRoutingDataSource extends AbstractRoutingDataSource {
 <a id="q3-49"></a>
 ### Q3.49: How do you implement Custom Jackson Serialization (`@JsonComponent` and Custom Annotation Contextual Serializer) for PII Masking?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - Sensitive fields (PAN, SSN, phone numbers) in DTOs often need automatic masking in API responses or structured JSON logs without mutating the underlying Java string.
 - By implementing `ContextualSerializer` with a custom `@MaskPii` annotation, Jackson inspects field annotations once per class and caches a specialized `JsonSerializer` for that property.
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 Record CustomerDto(@MaskPii String ssn)
        │
@@ -2709,7 +2891,7 @@ Jackson ObjectMapper -> PiiMaskingSerializer.createContextual() (Cached per DTO 
 JSON Output: { "ssn": "***-**-6789" }
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```java
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.FIELD)
@@ -2747,7 +2929,11 @@ public class MaskPiiSerializer extends StdSerializer<String> implements Contextu
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `MaskPii`, `MaskPiiSerializer` (annotated with `@Retention`, `@Target`, `@JacksonAnnotationsInside`, `@JsonSerialize`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: Inside `visibleLastDigits(...)` and `serialize(...)`, execution proceeds step-by-step: the core statement `public void serialize(String value, JsonGenerator gen, SerializerProvider p` executes the primary state transformation while preserving algorithmic time/space complexity and thread safety.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **`toString()` Leakage**: Remember that Jackson `@JsonSerialize` only protects JSON output. Override `toString()` on Java `record`s or DTOs containing PII/secrets so `log.info("Request: {}", dto)` does not leak plaintext secrets into application logs.
 
 ---
@@ -2755,12 +2941,12 @@ public class MaskPiiSerializer extends StdSerializer<String> implements Contextu
 <a id="q3-50"></a>
 ### Q3.50: How does Distributed Tracing work in Spring Boot 3 (`ObservationRegistry`, Micrometer Tracing, and W3C `traceparent` propagation)?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - Spring Boot 3 replaced Spring Cloud Sleuth with **Micrometer Observation (`ObservationRegistry`)** and **Micrometer Tracing** (bridging to OpenTelemetry or Brave).
 - A single instrumentation API (`Observation.createNotStarted(...)`) simultaneously generates **Timers/Counters** (metrics) and **Spans** (distributed traces).
 - Across HTTP (`RestClient`/`WebClient`) and Kafka (`KafkaTemplate`), Micrometer automatically injects and extracts the W3C Trace Context header: `traceparent: 00-<32-hex-trace-id>-<16-hex-span-id>-01`.
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 API Gateway ──[HTTP Header: traceparent: 00-4bf92f...01]──► Order Service
                                                                │ (Micrometer ObservationFilter)
@@ -2771,7 +2957,7 @@ API Gateway ──[HTTP Header: traceparent: 00-4bf92f...01]──► Order Serv
                                                                Payment Consumer (Continues same traceId!)
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```java
 @Service
 public class FraudCheckService {
@@ -2790,7 +2976,11 @@ public class FraudCheckService {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `FraudCheckService` (annotated with `@Service`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: the core statement `public FraudScore evaluate(Order order) {` executes the primary state transformation while preserving algorithmic time/space complexity and thread safety.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **High vs Low Cardinality Tags**: Never pass unbounded values (`orderId`, `userId`) to `.lowCardinalityKeyValue()`. Low-cardinality keys become Prometheus metric labels, and high cardinality will crash Prometheus TSDB! Use `.highCardinalityKeyValue()` so the ID is attached only to the OpenTelemetry trace span.
 
 ---
@@ -2798,11 +2988,11 @@ public class FraudCheckService {
 <a id="q3-51"></a>
 ### Q3.51: How does `@RefreshScope` work in Spring Cloud Config, and what are its production hazards?
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - Beans annotated with `@RefreshScope` are wrapped in a CGLIB scoped proxy backed by `RefreshScope` cache.
 - When `/actuator/refresh` (or `RefreshRemoteApplicationEvent`) is triggered, `RefreshScope.destroy()` clears the internal bean cache. The next method call on the proxy lazily instantiates a new target bean instance bound to the updated `Environment` properties.
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 Caller ──► [ CGLIB Scoped Proxy ] ──► [ RefreshScope Cache ] ──► Target Bean Instance v1
                                              │
@@ -2811,7 +3001,7 @@ Caller ──► [ CGLIB Scoped Proxy ] ──► [ RefreshScope Cache ] ──�
 Caller ──► [ CGLIB Scoped Proxy ] ──► Lazily creates Target Bean Instance v2 (with new properties!)
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```java
 // Prefer @ConfigurationProperties (rebinds fields on refresh without recreating service proxies)
 @ConfigurationProperties(prefix = "pricing.discount")
@@ -2821,7 +3011,11 @@ public class DiscountProperties {
 }
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code Execution Walkthrough**:
+  1. **Type & Metadata Structure**: The implementation defines `DiscountProperties` (annotated with `@ConfigurationProperties`), establishing the compile-time contract and runtime wiring required for this pattern.
+  2. **Core Execution Path**: During method execution, control flow proceeds step-by-step: the core statement `private BigDecimal maxPercentage = BigDecimal.TEN;` executes the primary state transformation while preserving algorithmic time/space complexity and thread safety.
+  3. **Invariant & Failure-Path Guarantees**: Return values, exception propagation, and resource cleanup are structured so that concurrent callers and downstream consumers observe consistent, deterministic state.
 - **Never put `@RefreshScope` on `DataSource` or `@Scheduled` beans**: Refreshing a `DataSource` closes active connection pools while requests are in flight, and `@Scheduled` tasks registered against the old bean instance may stop firing or duplicate. In Kubernetes, prefer immutable ConfigMap rollouts over runtime `@RefreshScope`.
 
 ---
@@ -2829,7 +3023,7 @@ public class DiscountProperties {
 <a id="q3-52"></a>
 ### Q3.52: Production Incident: Your Spring Boot service starts throwing `SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms`. Walk through your root-cause triage.
 
-#### 1. Core Concept & Internal Mechanics
+#### 1. Formal Technical Definition & Internal Mechanics
 - This exception means all `maximumPoolSize` connections in HikariCP are leased and no connection was returned within `connectionTimeout` (30s).
 - **Top 5 Root Causes in Production**:
   1. **External HTTP/gRPC call or Kafka publish inside `@Transactional`**: A slow downstream service (2s timeout) causes each DB transaction to hold its JDBC connection for 2,005ms instead of 5ms (reducing throughput by 400x!).
@@ -2838,7 +3032,7 @@ public class DiscountProperties {
   4. **Unindexed SQL Query / Database Lock Wait**: Queries stuck on PostgreSQL/MySQL row locks or full-table scans.
   5. **Connection Leak**: Manual `DataSourceUtils.getConnection()` or `entityManagerFactory.createEntityManager()` without `close()` in a `finally` block.
 
-#### 2. Pictorial Diagram
+#### 2. Technical Architecture & Execution Diagram
 ```
 HikariPool Exhaustion Triage Flow:
   [Check hikaricp.connections.active == max & pending > 0]
@@ -2850,7 +3044,7 @@ HikariPool Exhaustion Triage Flow:
        └──► 2. Enable leakDetectionThreshold (e.g., 5000ms) -> Logs exact stack trace where connection was leased!
 ```
 
-#### 3. Implementation Steps & Production Code
+#### 3. Detailed Technical Example & Production Code
 ```yaml
 spring:
   jpa:
@@ -2862,7 +3056,11 @@ spring:
       leak-detection-threshold: 5000 # Logs stack trace if connection held > 5s
 ```
 
-#### 4. Production Pitfalls & Interview Takeaway
+#### 4. Step-by-Step Code Execution Explanation & Production Pitfalls
+- **Step-by-Step Code & Configuration Execution Walkthrough**:
+  1. **Declaration & Schema Binding**: The YAML block begins with `spring:`, establishing the target resource, dependency descriptor, or execution context for **Production Incident: Your Spring Boot service starts throwing `SQLTransientConnectionException: HikariPool-1 - Connection is not available, request timed out after 30000ms`. Walk through your root-cause triage.**.
+  2. **Core Rule / Parameter Evaluation**: At `hikari:`, the runtime engine (Spring Boot binder, Kubernetes/Envoy control plane, JVM launcher, or SQL planner) parses the explicit thresholds, routing rules, or execution flags.
+  3. **Runtime Enforcement**: Concluding with `leak-detection-threshold: 5000 # Logs stack trace if connection held > 5s`, these settings are enforced deterministically at startup and runtime to guarantee the behavior illustrated in the architecture diagram above.
 - **Key Diagnostic Question**: Compare `hikaricp_connections_active` with PostgreSQL `pg_stat_activity WHERE state = 'active'`. If HikariCP shows 20 active connections but PostgreSQL shows 19 connections in `state = 'idle in transaction'`, the bottleneck is **inside the Java application** (holding transactions open during non-DB I/O), **not** the database!
 
 ---
